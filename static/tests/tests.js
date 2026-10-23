@@ -252,6 +252,28 @@ test('sun stands high at noon, below the horizon at midnight', () => {
   if (midnight.alt > -10) throw new Error(JSON.stringify(midnight));
 });
 
+test("the moon's lit side faces the sun, both hemispheres", () => {
+  // An evening crescent, 2026-11-14: the sun just set, so the lit side faces
+  // down and towards it (anticlockwise from up: negative is to the right). A
+  // straight line on the sky from the moon to the sun is a fair check this close.
+  const towardsSun = (t, lat, lon) => {
+    const m = astro.moonPosition(t, lat, lon);
+    const s = astro.sunPosition(t, lat, lon);
+    const x = (((s.az - m.az + 540) % 360) - 180) * Math.cos(((m.alt + s.alt) / 2) * (Math.PI / 180));
+    return Math.atan2(-x, s.alt - m.alt) / (Math.PI / 180);
+  };
+  for (const [iso, lat, lon, side] of [
+    ['2026-11-14T02:30:00Z', 47.6, -122.3, -1],  // Seattle: facing south, the sun is to the right
+    ['2026-11-14T09:00:00Z', -33.9, 151.2, 1],   // Sydney: facing north, the sun is to the left
+  ]) {
+    const t = new Date(iso);
+    const limb = astro.brightLimb(t, lat, lon);
+    if (Math.sign(limb) !== side || Math.abs(limb - towardsSun(t, lat, lon)) > 10) {
+      throw new Error(`${iso}: ${limb} vs ${towardsSun(t, lat, lon)}`);
+    }
+  }
+});
+
 const failed = results.filter(([ok]) => !ok);
 document.getElementById('out').textContent = results.map(([ok, n]) => `${ok ? 'ok  ' : 'FAIL'} ${n}`).join('\n');
 document.title = failed.length ? `FAIL ${failed.length} of ${results.length}` : `PASS ${results.length}`;
