@@ -1,7 +1,7 @@
 # wall-calendar — Design
 
-**Version:** 0.30 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1–R4, R6, R7, R9 passed (§15.13); **dev deployed and verified 2026-10-22**; **prod live 2026-10-22, R10 passed**; next: R5 (the iPad), R8 (always-ready cost), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
-**Date:** 2026-10-04
+**Version:** 0.31 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 built and live (dev and prod; spikes R1–R4, R6, R7, R9, R10 passed, §15.13; load tests §17.6); next: failure tests (§17.6), R5 (devices), R8 (always-ready cost); Phase 4 (Raspberry Pi) when the hardware arrives.
+**Last updated:** 2026-10-23 (first draft 2026-10-04)
 **Conventions:** decisions are ADRs (§13), unknowns are spikes (§12.3), and nothing personal goes in this repository.
 
 ## 0. Independence from other projects (ADR-11)
@@ -21,7 +21,7 @@ A wall display that shows shared calendars at a glance: today's agenda, the week
 
 ### Goals
 - **G1. Glanceable:** clock, date and today's events readable from about 3 m on a portrait 1080×1920 screen.
-- **G2. Three views, switchable by touch:** Today (agenda), Week, Month. Tapping an event shows its details.
+- **G2. Three views, switchable by touch:** Day (agenda), Week, Month. Tapping an event shows its details.
 - **G3. Survives outages:** the last good data stays on screen, with a clear note of how old it is.
 - **G4. Read-only and least privilege:** the device can read only the calendars chosen for it, and can change nothing.
 - **G5. Untrusted content is harmless:** event text comes from arbitrary senders (invitations, and events that other tools created from email). Nothing in an event can run code, navigate the kiosk or produce a clickable link.
@@ -68,7 +68,7 @@ The suggested architecture is sound, and most of it is kept. These changes come 
                               │ (outlook.com, MFA)        │◄──────────────────┘   events.json (0640, group web) │
                               │ accepted shares only      ││                                                    │
                               └───────────────────────────┘│  user fwcal-web (no login shell)                   │
-                                   ▲ Graph: Cal.Read.Shared │  ┌──────────────────────────────────────────────┐  │
+                                   ▲ Graph: Calendars.Read  │  ┌──────────────────────────────────────────────┐  │
                                    │ (delegated, read-only) │  │ fwcal serve  127.0.0.1:8765 only             │  │
                                                             │  │  static page · /api/events · /api/photos     │  │
                                                             │  │  reads events.json and photo folder; no token │  │
@@ -86,8 +86,8 @@ The suggested architecture is sound, and most of it is kept. These changes come 
 ### 5.1 Which calendars (ADR-1)
 - A **dedicated viewer account** (e.g. `<non-identifying>-wall@outlook.com`; **decided 2026-10-04: I'm creating it**). It is made by hand (off VPN, ideally on a phone), with a unique password in my password manager and MFA. It is used for nothing else, holds no other consented apps, and is aged 1–2 weeks before the Pi connects.
 - Owners share each chosen calendar to it **view-only ("can view all details")**, and it accepts them. Which calendars are chosen is recorded only in the private config. **Never share a calendar that holds proposals, digests or other working data** of another tool; share only calendars meant to be read by people.
-- **Detail level per calendar (ADR-15, decided 2026-10-21; amended after S1).** Outlook now offers only *"Can view"* and *"Can edit"* when sharing, so details can't be withheld at the share. Every calendar is shared as **"Can view"**, and the config's `detail` setting does the limiting twice: the sync job **doesn't request** the hidden fields from Graph (`$select` per calendar, §5.3), and normalisation removes them again (§5.4 rule 7a). The **Health** calendar uses `detail = "titles"`: title and time only, never location or notes. `detail = "busy"` (time only) is available for anything more sensitive.
-- **Currently shared (2026-10-21):** four calendars from one owner account, Health among them. One more calendar is deliberately **not** shared for now; sharing it later as "Can view" makes it visible with no code change (it then needs a `[[calendars]]` entry).
+- **Detail level per calendar (ADR-15, decided 2026-10-21; amended after S1).** Outlook now offers only *"Can view"* and *"Can edit"* when sharing, so details can't be withheld at the share. Every calendar is shared as **"Can view"**, and the config's `detail` setting does the limiting twice: the sync job **doesn't request** the hidden fields from Graph (`$select` per calendar, §5.3), and normalisation removes them again (§5.4 rule 7a). A sensitive calendar uses `detail = "titles"`: title and time only, never location or notes. `detail = "busy"` (time only) is available for anything more sensitive.
+- Which calendars are shared is recorded only in the private config. Sharing another calendar later as "Can view" makes it visible with no code change (it then needs a `[[calendars]]` entry).
 - `fwcal calendars` lists what the viewer account can see (name, owner, whether it can edit, ID). I copy the chosen IDs into the config. **The sync reads only configured IDs**; other calendars are never fetched, even if shared later.
 - If `fwcal calendars` shows `canEdit: true` on any configured calendar, sync logs a warning and the wall shows a small notice. The share should be view-only, even though our token can't write anyway.
 
@@ -107,7 +107,7 @@ The suggested architecture is sound, and most of it is kept. These changes come 
 - Refresh is silent (`acquire_token_silent`). If it needs interaction, sync records `auth: reauth_required` and the wall shows "Calendar sign-in needed". **The wall never shows a sign-in link or code.**
 
 ### 5.3 Fetch
-- **Schedule:** a systemd timer every 5 minutes with ±30 s jitter, plus a run at boot. On the laptop, `fwcal dev` runs the same loop in-process.
+- **Schedule:** a systemd timer: 30 s after boot, then 5 minutes after each run, each delayed by up to 30 s at random. On the laptop, `fwcal dev` runs the same loop in-process.
 - **Window** (computed in local time, with one day of slack each side; no tz database needed):
   `start = min(first day of the week that contains the 1st of this month, today - 7 days)`
   `end = max(today + lookahead_days (default 35), last day of the current month's grid)`
@@ -138,7 +138,7 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - **Timed events:** Graph returns UTC (header above). They are stored as ISO-8601 instants with `Z`, and the browser converts them to local time with `Intl`. The Pi's system time zone must be set (deployment checklist), and NTP keeps the clock right.
 - **All-day events:** stored as **dates only** (`startDate`, exclusive `endDate`), taken from the date part and never converted between zones. A converted all-day event can slip a day, so these never go through time-zone conversion. **Spike S2** confirms how Graph returns all-day events under `Prefer: outlook.timezone="UTC"`.
 - **Multi-day and overnight events** appear on every day they touch. Timed events show "continues" or "until 10:00" on later days.
-- **Python needs no `tzdata` package.** Window maths uses the local UTC offset with a day of slack, and all display conversion happens in the browser.
+- **The Pi needs no `tzdata` package.** Window maths uses the local UTC offset with a day of slack, and all display conversion happens in the browser. *(The cloud sync runs on UTC, so it pins `tzdata` for the configured time zone; ADR-30, ADR-34.)*
 
 ## 6. Data contract: `events.json` (also `GET /api/events`)
 ```jsonc
@@ -180,7 +180,7 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - **Config** (TOML, read with stdlib `tomllib`): `client_id`, `expected_account`, `[[calendars]]` (key, Graph ID, display name, color, detail level), `lookahead_days`, `port`, `photo_dir`, display settings. It holds **no secrets** (a public client ID is not one), but it does hold personal details (the account name and calendar names), so it stays out of git.
 - **Paths are resolved by code, not taken from the URL or the environment.** The config path can be overridden only with an explicit `--config` argument; nothing is read from environment variables.
 - **Logs** hold counts, status codes, Graph `request-id`, durations and calendar keys, but never titles, notes, locations, tokens or account names. MSAL's own logger is set to WARNING, and it is checked that it never logs token values.
-- **Repository safety:** `.gitignore` adds `*.toml` except `config.example.toml`, `*cache*.json`, `events*.json`, `photos/`, `reference/` and `secrets/`. A small pre-commit hook (`tools/git-hooks/pre-commit`, written for this repo) blocks token-like strings (`"refresh_token"`, `eyJ…` JWTs), `.toml` files other than the example, and anything under `photos/` or `reference/`.
+- **Repository safety:** `.gitignore` adds `*.toml` except `config.example.toml`, `*cache*.json`, `events*.json`, `photos/`, `reference/` and `secrets/`. Git hooks written for this repo (`tools/git-hooks/pre-commit` and `commit-msg`, both running `tools/precommit_check.py`, which CI also runs on every tracked file) block token-like strings (`"refresh_token"`, `eyJ…` JWTs), `.toml` files other than the example, anything under `photos/` or `reference/`, invisible control and format characters, and words that refer to the people who use it (in files and commit messages; §17.5).
 - **`reference/` screenshots** stay local and gitignored. They are third-party product screenshots, and may show personal calendars.
 - **Mock data is generic** ("Tennis practice", "Dentist", "Book club"). There are no real names, places, activities or schedules in the repo, and nothing about who uses it.
 
@@ -190,19 +190,19 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - Python stdlib `http.server.ThreadingHTTPServer`. **No web framework.**
 - Binds `127.0.0.1` only. A port is configurable; a non-loopback bind address is **not** configurable.
 - **Routes are a fixed table** built at startup:
-  - `/`, `/app.css`, `/js/*.js`, `/fonts/*.woff2` map to files enumerated from `static/` once at startup. The request path is a dictionary key, never joined to a filesystem path;
+  - `/`, `/app.css`, `/js/*.js`, `/fonts/*.woff2`, `/icons/*.png` and `/manifest.webmanifest` map to files enumerated from `static/` once at startup. The request path is a dictionary key, never joined to a filesystem path;
   - `/api/events`, `/api/settings`, `/api/photos` (a list of opaque names);
   - `/photos/<name>`, served only if `<name>` is in the current listing (rescanned every 10 minutes): `.jpg`, `.jpeg`, `.png` and `.webp` only, at most 25 MB each. Symlinks are not followed. **SVG is not allowed** (it can carry script).
-- **Request checks:** method GET or HEAD (else 405); `Host` must be exactly `127.0.0.1:<port>` or `localhost:<port>` (else 421); if `Sec-Fetch-Site` is present it must be `same-origin` or `none` (else 403); no query strings except a cache-buster; request line and headers capped at 8 KB; one-second header timeout.
+- **Request checks:** method GET or HEAD (else 405); `Host` must be exactly `127.0.0.1:<port>` or `localhost:<port>` (else 421); if `Sec-Fetch-Site` is present it must be `same-origin` or `none` (else 403); no query strings at all (any `?` is refused); request line and headers capped at 8 KB; a 5 s timeout on every socket operation, so slow clients are dropped.
 - **Response headers on everything:**
-  - `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'`
+  - `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'`
   - `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy` denying camera, microphone, geolocation, USB, payment and similar, `Cache-Control: no-store` on the API.
   - **No CORS headers**, ever.
 - Errors are short fixed strings, with no stack traces or paths.
 
 ### 8.2 Frontend rules
 - **Vanilla ES modules, no build step, no third-party JS, no CDN.** Fonts are served locally (§10.4).
-- **One DOM helper** (`dom.js`: `el(tag, {class}, ...children)`) creates elements with `createElement` and sets text with `textContent`. **These are banned in `static/`** and the ban is enforced by a test that scans the source: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`, string `setTimeout`/`setInterval`, `.href =`, `<a`, `window.open` and `location.assign`.
+- **One DOM helper** (`dom.js`: `el(tag, {class}, ...children)`) creates elements with `createElement` and sets text with `textContent`. **These are banned in `static/`** and the ban is enforced by a test that scans the source (`tests/test_static.py` holds the full list): among them `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`, string `setTimeout`/`setInterval`, `.href =`, `.src =` (outside the photo helper), `<a`, `window.open`, `location.assign`, `DOMParser`, `postMessage` and dynamic `import()`.
 - **Trusted Types with `trusted-types 'none'`:** Chromium throws on any HTML-string sink, so even a missed `innerHTML` fails safely instead of injecting.
 - **No links anywhere.** URLs in notes are plain text. Text selection, the long-press callout and the context menu are disabled (CSS `user-select: none`, `-webkit-touch-callout: none`, and `contextmenu` prevented). Kiosk policy also blocks navigation (§9.2).
 - **Colors** are applied through `element.style.setProperty('--cal', value)` only after the regex check, so no inline style attributes are needed (CSP blocks them).
@@ -227,21 +227,21 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
   - sleeps when there's no signal (for night-time screen off).
   **Avoid "smart" or Android all-in-one displays** (another networked computer on the wall), and models with a built-in camera or microphone.
 - **Mounting and network:** the Pi goes on a VESA bracket behind the screen, so one outlet and short cables are enough (Pi 5 needs a micro-HDMI → HDMI cable). Use wired Ethernet if there's a port nearby; otherwise Wi-Fi is fine, since the display survives outages.
-- **Portrait setup:** rotate in the compositor (labwc/kanshi), and **map touch input to the rotated output**, or taps land in the wrong place. This is part of S3.
+- **Portrait setup:** rotate the output with `wlr-randr` in labwc's autostart, and **map touch input to the rotated output** in labwc's `rc.xml`, or taps land in the wrong place (`deploy/SETUP.md`). This is part of S3.
 
 ### 9.1 Services (systemd)
 - `fwcal-sync.service` (oneshot) + `fwcal-sync.timer`; `fwcal-web.service` (simple, restart on failure), started by **`fwcal-web.socket`**: systemd holds 127.0.0.1:8765 at all times, so no other process can take the port while the web service restarts (§12.6).
-- **Sandboxing on both:** `NoNewPrivileges`, `ProtectSystem=strict` (with `ReadWritePaths` set to the unit's own state directory), `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `RestrictSUIDSGID`, `LockPersonality`, `MemoryDenyWriteExecute` (verified to work with `cryptography`), `SystemCallFilter=@system-service`, `CapabilityBoundingSet=` (empty), `UMask=0077` for sync and `0027` for web.
-- **Network:** `fwcal-web` gets `RestrictAddressFamilies=AF_INET AF_UNIX`, `IPAddressDeny=any`, `IPAddressAllow=localhost`. `fwcal-sync` gets `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` and has no listening socket.
+- **Sandboxing on both:** `NoNewPrivileges`, `ProtectSystem=strict` (with `ReadWritePaths` set to the unit's own state directory), `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `RestrictSUIDSGID`, `LockPersonality`, `SystemCallFilter=@system-service` minus `@privileged @resources`, `CapabilityBoundingSet=` (empty). `UMask=0027` for sync (so `events.json` stays readable by the web service's group; the token file gets an explicit 0600) and `0077` for web. `MemoryDenyWriteExecute=yes` on web; on sync it waits for S3 (the `cryptography` library).
+- **Network:** `fwcal-web` gets `PrivateNetwork=yes` (no network beyond the socket systemd passes in), `IPAddressDeny=any` and `RestrictAddressFamilies=AF_UNIX AF_INET`. `fwcal-sync` gets `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` and has no listening socket.
 - The code runs from a root-owned virtualenv at `/opt/fwcal` (not writable by either service user).
 
 ### 9.2 Kiosk browser
-- The desktop user auto-logs in and starts `chromium --kiosk --app=http://127.0.0.1:8765 --noerrdialogs --disable-session-crashed-bubble --no-first-run --overscroll-history-navigation=0 --disable-pinch`. **Never `--remote-debugging-port`.** Screen rotation is set in the compositor (labwc/kanshi).
-- **Managed policies** in `/etc/chromium/policies/managed/fwcal.json`: `URLBlocklist ["*"]` and `URLAllowlist ["http://127.0.0.1:8765"]`; `DeveloperToolsAvailability 2`; `DownloadRestrictions 3`; `PrintingEnabled false`; `BrowserSignin 0`; `SyncDisabled true`; `PasswordManagerEnabled false`; `AutofillAddressEnabled false`; `AutofillCreditCardEnabled false`; `TranslateEnabled false`; `SearchSuggestEnabled false`; `MetricsReportingEnabled false`; `ExtensionInstallBlocklist ["*"]`; `DefaultGeolocationSetting 2`; `DefaultNotificationsSetting 2`; `DefaultPopupsSetting 2`; `IncognitoModeAvailability 1`.
+- The desktop user auto-logs in and starts `chromium --kiosk --app=http://127.0.0.1:8765/ --ozone-platform=wayland --noerrdialogs --disable-session-crashed-bubble --no-first-run --disable-pinch --overscroll-history-navigation=0 --disable-features=Translate,TouchpadOverscrollHistoryNavigation --password-store=basic` (`deploy/kiosk/autostart`). **Never `--remote-debugging-port`.** Screen rotation: `wlr-randr` in the same autostart (§9.0).
+- **Managed policies** in `/etc/chromium/policies/managed/fwcal.json` (`deploy/chromium/fwcal-policy.json` is the full list), among them: `URLBlocklist ["*"]` and `URLAllowlist ["http://127.0.0.1:8765"]`; `DeveloperToolsAvailability 2`; `DownloadRestrictions 3`; `PrintingEnabled false`; `BrowserSignin 0`; `SyncDisabled true`; `PasswordManagerEnabled false`; `AutofillAddressEnabled false`; `AutofillCreditCardEnabled false`; `TranslateEnabled false`; `SearchSuggestEnabled false`; `MetricsReportingEnabled false`; `ExtensionInstallBlocklist ["*"]`; `DefaultGeolocationSetting 2`; `DefaultNotificationsSetting 2`; `DefaultPopupsSetting 2`; `IncognitoModeAvailability 1`; also guest mode, file dialogs, USB, serial, Bluetooth, camera and microphone off.
 - The page reloads itself daily at 03:00 to pick up updates and release memory.
 
 ### 9.3 Host hardening checklist
-- Raspberry Pi OS Lite + a minimal Wayland session; automatic security updates (`unattended-upgrades`).
+- The standard Raspberry Pi OS (64-bit) image with its labwc desktop, listening services removed (see the deviations above); automatic security updates (`unattended-upgrades`).
 - **SSH: keys only, no password login, no root login.** Optionally reachable from the LAN only.
 - nftables: default deny inbound, allow established and SSH from the LAN.
 - Disable services that listen and aren't needed (`avahi-daemon`, `cups`, Bluetooth).
@@ -267,13 +267,13 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 │  9:41                        │  clock + date block  (~22% height)
 │  Sunday, October 4           │
 ├──────────────────────────────┤
-│ [ Today ]  [ Week ]  [ Month ]│  view switch: 3 large pills (≥ 96 px tall)
+│ [  Day  ]  [ Week ]  [ Month ]│  view switch: 3 large pills (≥ 96 px tall)
 ├──────────────────────────────┤
 │  ALL DAY  ▌Guests visiting   │
 │  8:00 AM  ▌Tennis practice   │  active view (scrolls inside if long)
 │  3:30 PM  ▌Dentist  · Main St│
 │  ...                         │
-│  TOMORROW                    │  Today view adds a short "Tomorrow" preview
+│  TOMORROW                    │  Day view adds a short "Tomorrow" preview
 ├──────────────────────────────┤
 │ ● Home ● Events ● Work    ⓘ │  legend + status
 └──────────────────────────────┘
@@ -281,9 +281,9 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - **Day** (the tab was called Today until 2026-10-21): all-day events as banners, then timed events in order. Under each start time, a smaller, dimmer line gives the end ("to 4:30 PM", or "to Sun 9:00 AM" across midnight; none for all-day events or events continuing from an earlier day, which already say "Until ..."). Events in progress are highlighted, and past events are dimmed. A "Tomorrow" preview shows up to 4 events. Swipe left/right changes the day. The heading says "Today" for today; for any other day it shows the date with a dimmer relative hint ("Thursday, October 22 · Tomorrow", "In 5 days", "Yesterday"). Tapping the Day tab always returns to today.
 - **Truncated text:** titles, locations and chips that don't fit end with an ellipsis; on a laptop, hovering shows the full text as a native tooltip (plain text, set only when the text is actually cut off). On the touch kiosk, tapping opens the details panel instead.
 - **Week:** in portrait, 7 **stacked day rows** (not 7 narrow columns), each with its events as compact chips. Today is highlighted. Swipe changes the week. *In every view, swiping left brings the next day, week or month and right the previous one, as in other calendar apps; paging works as a reel: during a drag the neighbouring page is drawn beside the current one and both follow the finger, then roll on or back; at the end of the synced range the page gives a little and rolls back (only transforms change, so it is cheap on the Pi; off when the device asks for reduced motion). A drag that ends on an event doesn't open it; the next tap does (decided 2026-10-22).*
-- **Month:** a 7-column grid with 5–6 rows. Each day shows **one dot per event in its calendar colour** (a short pill for all-day events), up to 8, then "+N": a busy-ness pattern readable from across the room, with no truncated text. Tapping a day opens it in the Today view; on a laptop, hovering over a day lists its events with times. *(Changed 2026-10-21 from up to 3 text chips per day, which clipped and cut titles to a few characters with real data.)* Swipe changes the month (within the synced window).
+- **Month:** a 7-column grid with 5–6 rows. Each day shows **one dot per event in its calendar colour** (a short pill for all-day events), up to 8, then "+N": a busy-ness pattern readable from across the room, with no truncated text. Tapping a day opens it in the Day view; on a laptop, hovering over a day lists its events with times. *(Changed 2026-10-21 from up to 3 text chips per day, which clipped and cut titles to a few characters with real data.)* Swipe changes the month (within the synced window).
 - **Landscape and other sizes:** a CSS grid reflow (clock column on the left, view on the right). Sizes use `clamp()` and viewport units, so 1920×1080 and the laptop window both work.
-- **Idle behaviour:** after 2 minutes without a touch, the details panel closes and the display returns to Today for the current day.
+- **Idle behaviour:** after 2 minutes without a touch, the details panel closes and the display returns to the Day view for the current day.
 - **Timers and power (2026-10-21):** the page wakes **once a minute, just after the minute boundary** (not every second) to update the clock, past/now highlighting, night dimming and the day; it checks `/api/events` every 60 s with **`If-None-Match`**, and the server answers **304 with no body** until a sync changes the file (the server also caches the validated file by modification time, size and inode, so it isn't re-read). While the page is **hidden** (a laptop background tab) the clock, polling and photo changes stop, and everything catches up the moment it is visible. Verified: event end and midnight transitions happen unattended. The screen itself is the largest power draw; a scheduled screen-off is planned for Phase 4 (§9).
 
 ### 10.3 Event details panel
@@ -293,11 +293,11 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 
 ### 10.4 Fonts and assets
 - **Inter** (SIL Open Font License 1.1), the upright variable `woff2` (weights 100–900, 352 KB; italics not used), vendored into `static/fonts/` with `LICENSE.txt`. The upstream release, download URL and SHA-256 of each file are recorded in `static/fonts/SOURCES.md`, and a test checks the hashes. Fallback stack: `system-ui, sans-serif`.
-- Icons are inline SVG built with DOM APIs, or plain CSS. There are no icon fonts or third-party sprites.
+- Icons in the page are inline SVG built with DOM APIs, or plain CSS. The app icons (favicon, Apple touch icon, manifest icons) are PNGs drawn by `tools/make_icons.py` with the standard library, and a test checks them against the generator. There are no icon fonts or third-party sprites.
 
 ### 10.5 Mock-data mode
 - `fwcal dev --mock` (laptop) or `fwcal serve --mock`. **Mock mode never imports MSAL, never reads the token cache and makes no network calls**; a test enforces this.
-- It generates events relative to "now" across 4 calendars: overlapping events, all-day and multi-day events, overnight events, a day with 9 events (overflow), an empty day, and a private event.
+- It generates events relative to "now" across 6 generic calendars: overlapping events, all-day and multi-day events, overnight events, a day with 9 events (overflow), an empty day, and a private event.
 - **Adversarial fixtures double as security tests:** a body with `<script>`, `<img onerror>`, `javascript:` URLs, `<a href>`, a Teams join block, bidi-override characters, zero-width characters, a 10,000-character title, emoji and RTL text, and an HTML body that arrives despite the text preference. They go through **the same `normalize.py` as Graph data**, so the UI shows exactly what production would.
 - `--now 2026-12-31T23:30` fixes the clock to test month and year rollover. A built-in sample photo set (flat landscapes drawn by the standard library at first start) keeps it free of personal photos and downloads. `--mock-status stale|offline|reauth` shows each status-line state.
 
@@ -340,8 +340,8 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 ## 12. Dependencies, testing and delivery
 
 ### 12.1 Dependencies
-- **Runtime:** `msal` only directly. It brings `requests` (also used for Graph), `PyJWT`, `cryptography` and their dependencies (`cffi`, `pycparser`, `urllib3`, `idna`, `charset-normalizer`, `certifi`). There is **no** HTML sanitizer, web framework, `tzdata` or `msal-extensions`.
-- **Pinning:** `requirements.in` → `requirements.txt` generated with `pip-compile --generate-hashes` (pip-tools, a dev tool only). Hashes cover both the Windows (cp314) and Raspberry Pi aarch64 (cp313) wheels. Installation is `pip install --require-hashes --only-binary :all: --no-deps -r requirements.txt`. Dev tools (`pip-tools`, and `ruff` if adopted) are pinned the same way in `requirements-dev.txt`. **Phase 1 uses the standard library only.** The files were created on 2026-10-21 for spike S1: `msal` 1.39.0, `requests` 2.34.2, `cryptography` 50.0.2, `PyJWT` 2.15.1 and their dependencies (10 packages, 345 hashes); every platform wheel for Raspberry Pi aarch64 (cp313) and Windows (cp314) is covered. `pip-tools` is in `requirements-dev.txt` only.
+- **Runtime:** `msal` only directly. It brings `requests` (also used for Graph), `PyJWT`, `cryptography` and their dependencies (`cffi`, `pycparser`, `urllib3`, `idna`, `charset-normalizer`, `certifi`). There is **no** HTML sanitizer, web framework, `tzdata` (on the Pi) or `msal-extensions`.
+- **Pinning:** `requirements.in` → `requirements.txt` generated with `pip-compile --generate-hashes` (pip-tools, a dev tool only). Hashes cover both the Windows (cp314) and Raspberry Pi aarch64 (cp313) wheels. Installation is `pip install --require-hashes --only-binary :all: --no-deps -r requirements.txt`. Dev tools (`pip-tools`, `ruff`, `pip-audit`, and `tzdata` for the cloud tests) are pinned the same way in `requirements-dev.txt`. **Phase 1 uses the standard library only.** The files were created on 2026-10-21 for spike S1: `msal` 1.39.0, `requests` 2.34.2, `cryptography` 50.0.2, `PyJWT` 2.15.1 and their dependencies (10 packages, 345 hashes); every platform wheel for Raspberry Pi aarch64 (cp313) and Windows (cp314) is covered. `pip-tools` is in `requirements-dev.txt` only.
 - **Python:** 3.13 or later (Raspberry Pi OS Trixie has 3.13; the laptop has 3.14). No 3.14-only features.
 - **Frontend:** none.
 
@@ -358,7 +358,7 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - **Static source scan:** the banned-sink list (§8.2), plus no `http(s)://` URLs in `static/` (no CDNs).
 - **Mock-mode isolation:** mock mode imports no `msal` and opens no sockets except the listener.
 - **Frontend:** the pure JS functions (day bucketing, multi-day spans, month grid, overflow) are tested by a small in-browser test page (`/tests/index.html`) served only in mock mode; it also checks that Trusted Types blocks `innerHTML`. Visual checks at 1080×1920, 1920×1080 and the laptop size in the browser, with screenshots for review.
-- **Graph tests** use recorded, scrubbed responses (`tests/fixtures/graph/`, synthetic content only), never live calls.
+- **Graph tests** use synthetic Graph-shaped responses built by test fakes (`tests/fakes.py`), never live calls.
 
 ### 12.3 Spikes (before the fetcher is built)
 
@@ -400,7 +400,7 @@ Carried to Phase 4: **port squatting.** If `fwcal-web` is down, another local pr
 Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory only, never printed; account and scopes checked before any Graph call; only counts and field shapes printed.
 - **Sign-in:** the device-code flow failed: Microsoft's consumer code-entry page rejected every code as "expired" at entry while the token endpoint still reported it as pending (`AADSTS70016`). This happened with our app and with Microsoft's own Graph command-line client, on a laptop and on a phone on mobile data. The browser sign-in (authorization code + PKCE, `http://localhost`) worked first time. ADR-2 changed accordingly.
 - **Permission:** `Calendars.Read.Shared` was silently dropped by the consumer sign-in (no calendar line on the consent screen; granted scopes `openid profile`); the account and scope checks refused to continue, as designed. `Calendars.Read` was granted (consent screen: "Read your calendars") and is sufficient.
-- **Calendars:** `/me/calendars` listed the viewer account's own empty calendar plus **4 shared calendars from one owner, all `canEdit = false`**. `calendarView` worked on every calendar.
+- **Calendars:** `/me/calendars` listed the viewer account's own empty calendar plus **the shared calendars, all `canEdit = false`**. `calendarView` worked on every calendar.
 - **Event shapes (partial S2):** times in UTC as requested; bodies as text; one all-day event returned as midnight UTC (confirms date-only handling); no recurring or private events in the 14-day window.
 - **Negative tests:** create an event in the viewer's own calendar **403**; mail **403**; contacts **403**; OneDrive **401**; `/me` **403** (no `User.Read`).
 - **Mistakes corrected on the way:** the original advice to leave redirect URIs empty was wrong for this flow (it needs `http://localhost`); the `nativeclient` URI and the Live SDK toggle were tried and were not the cause.
@@ -408,7 +408,7 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 ### 12.8 Phase 3 result (2026-10-21): fetcher working on the laptop
 - **Built:** `fwcal auth login | status | logout` (browser sign-in with PKCE; `--paste` for a headless Pi); `fwcal calendars [--add]`; `fwcal sync [--loop]`; `fwcal dev` now runs the web server and the sync loop together. Modules: `tokencache.py`, `auth.py`, `graph.py`, `sync.py`. MSAL is imported only by these commands, never by the web server or mock mode (tested).
 - **Token cache on Windows:** saved in `%LOCALAPPDATA%\fwcal\auth`; the folder's ACL lists **only the user and SYSTEM** (inheritance removed, so not even Administrators). `fwcal auth status` shows the account and the number of refresh tokens, never their values.
-- **Live sync:** 64 events from the 4 shared calendars in under 2 s, none rejected. **Health** (`detail = "titles"`): 3 events, **0 locations and 0 notes**, because `location` and `body` were never requested. No Graph IDs in `events.json`. `fwcal check` reports the config and events as good.
+- **Live sync:** every shared calendar synced in under 2 s, no events rejected. The `detail = "titles"` calendar returned **0 locations and 0 notes**, because `location` and `body` were never requested. No Graph IDs in `events.json`. `fwcal check` reports the config and events as good.
 - **`fwcal calendars --add`** appends the shared calendars to the private config and **asks the detail level for each, defaulting to `titles`** (the private choice). Calendar names come from the calendar's owner, so they are cleaned before being printed (no terminal escape codes) and written as quoted, escaped TOML strings.
 - **Changes from the plan:** a calendar shared with edit rights is reported by `fwcal calendars` (with a warning) instead of as a notice on the wall; removed shares drop their events (§5.3); the page's timers and the 304 answers above.
 - **Tests:** 138 Python tests (Graph client, sync, token cache, sign-in checks and CLI use fakes; no network) and 16 in-browser tests, all passing.
@@ -420,19 +420,19 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 |---|---|---|
 | ADR-1 | A dedicated viewer Microsoft account with view-only shares; never my primary account; never a calendar holding another tool's working data | **Accepted 2026-10-04** |
 | ADR-2 | Public client; **browser sign-in (authorization code + PKCE, `http://localhost` redirect)** instead of device code; `consumers`; **`Calendars.Read`** only; MSAL adds `openid profile offline_access`; separate app registration. *History: device code was refused at Microsoft's consumer code-entry page; `Calendars.Read.Shared` was silently dropped (both found in S1, 2026-10-21).* | **Accepted; verified by S1** |
-| ADR-3 | Two processes, two service users: sync holds the token, web never sees it | Proposed |
-| ADR-4 | Plain-text bodies from Graph + stdlib fallback + `textContent` + Trusted Types; no sanitizer library | Proposed |
-| ADR-5 | Token cache: plain file, created 0600 in a 0700 directory, refuse otherwise; Windows dev: the token directory still gets an explicit ACL with inheritance removed (current user and SYSTEM only) as cheap defence in depth. *Correction 2026-10-21: the extra AppContainer entry first seen on AppData was an artifact of the development sandbox's view; the real profile grants only the user, SYSTEM and Administrators.* No `msal-extensions` (libsecret needs a desktop keyring on a headless Pi) | Proposed |
-| ADR-6 | Stdlib HTTP server on 127.0.0.1, fixed routes, Host and Sec-Fetch checks, strict CSP | Proposed |
+| ADR-3 | Two processes, two service users: sync holds the token, web never sees it | Accepted (built and tested, Phases 1 and 3) |
+| ADR-4 | Plain-text bodies from Graph + stdlib fallback + `textContent` + Trusted Types; no sanitizer library | Accepted (built and tested, Phases 1 and 3) |
+| ADR-5 | Token cache: plain file, created 0600 in a 0700 directory, refuse otherwise; Windows dev: the token directory still gets an explicit ACL with inheritance removed (current user and SYSTEM only) as cheap defence in depth. *Correction 2026-10-21: the extra AppContainer entry first seen on AppData was an artifact of the development sandbox's view; the real profile grants only the user, SYSTEM and Administrators.* No `msal-extensions` (libsecret needs a desktop keyring on a headless Pi) | Accepted (built and tested, Phase 3) |
+| ADR-6 | Stdlib HTTP server on 127.0.0.1, fixed routes, Host and Sec-Fetch checks, strict CSP | Accepted (built and tested, Phases 1 and 3) |
 | ADR-7 | Chromium kiosk locked by managed policies; no remote debugging | Proposed |
 | ADR-8 | Fetch window = earlier of the current month grid start and 7 days ago → later of +35 days and month grid end | Accepted (history amended 2026-10-21) |
-| ADR-9 | Calendar colors and names from config; Graph IDs never reach the browser | Proposed |
-| ADR-10 | No ICS/public calendar links: anyone holding the link could read where people will be | Proposed |
+| ADR-9 | Calendar colors and names from config; Graph IDs never reach the browser | Accepted (built and tested, Phases 1 and 3) |
+| ADR-10 | No ICS/public calendar links: anyone holding the link could read where people will be | Accepted (built and tested, Phases 1 and 3) |
 | ADR-11 | Full independence from other projects: no shared accounts, app registrations, credentials, code, config, tooling or runtime data (§0) | **Accepted 2026-10-04** |
 | ADR-12 | Display defaults: 12-hour clock, week starts Sunday, `show_notes` option (default on; off removes notes in the sync job) | **Accepted 2026-10-04** |
 | ADR-13 | Hardware: Raspberry Pi 5 (4 GB) + a plain 21.5–24" 1080p IPS USB-touch monitor in portrait (§9.0) | Proposed: recommendation |
 | ADR-14 | Font: Inter v4.1 (OFL 1.1), upright variable woff2, vendored with licence and SHA-256 (§10.4) | **Accepted 2026-10-04** |
-| ADR-15 | Per-calendar detail level (`full` / `titles` / `busy`). Outlook offers only "Can view" / "Can edit", so it is enforced by requesting only the allowed fields (`$select`) and by normalisation; Health = titles and times only (§5.1, §5.3, §5.4) | **Accepted 2026-10-21; amended after S1** |
+| ADR-15 | Per-calendar detail level (`full` / `titles` / `busy`). Outlook offers only "Can view" / "Can edit", so it is enforced by requesting only the allowed fields (`$select`) and by normalisation; a sensitive calendar shows titles and times only (§5.1, §5.3, §5.4) | **Accepted 2026-10-21; amended after S1** |
 
 ## 14. Open questions
 **Resolved 2026-10-21:** reference screenshots not needed; the approved mockup is the visual reference (§10.1).
@@ -440,22 +440,21 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 **Resolved 2026-10-04:** viewer account (ADR-1, I'm creating it); 12-hour clock, Sunday week start, notes optional (ADR-12); font (ADR-14); independence from other projects (ADR-11).
 
 **Still open:**
-1. **One more calendar:** not shared to the viewer account for now (decided 2026-10-21); share as "Can view" when wanted.
-2. **Hardware:** not bought yet; §9.0 recommends a setup. S3 runs once it arrives, and nothing in Phases 1–3 depends on it.
-3. **Paging to other months (possible later feature, not in scope).** The page shows only what the synced copy holds (ADR-8: the month grid or the past week, through `lookahead_days` ahead, 35 by default, at most 120). Fetching from Graph when someone pages would give up what the separation of sync and display buys: a fast page that works through outages, a Pi web service with no network at all, and no Graph token on Azure's request path. If paging is wanted:
+1. **Hardware:** not bought yet; §9.0 recommends a setup. S3 runs once it arrives, and nothing in Phases 1–3 depends on it.
+2. **Paging to other months (possible later feature, not in scope).** The page shows only what the synced copy holds (ADR-8: the month grid or the past week, through `lookahead_days` ahead, 35 by default, at most 120). Fetching from Graph when someone pages would give up what the separation of sync and display buys: a fast page that works through outages, a Pi web service with no network at all, and no Graph token on Azure's request path. If paging is wanted:
    - **Step 1, a wider copy refreshed in tiers:** the current and next month every 5 minutes as now; a far range (for example 3 months back to 12 ahead) hourly. Paging inside it is instant and works offline. Watch daily recurring series, which multiply over a year; the existing page and event caps (§5) bound them.
    - **Step 2, further out on request, still through the sync:** paging past the far range shows "loading…" and leaves a small request (a month); the sync fetches it within seconds and adds it to the copy. The page never calls Graph. On the Pi the request is a local file that wakes the sync service (systemd path activation), so the web service keeps no network access.
-4. **Non-blocking I/O in the cloud (planned improvement, decided 2026-10-22).** The cloud code calls Key Vault, storage, Microsoft sign-in and Graph with a blocking HTTP library on the runtime's thread pool (ADR-25). That's correct and has ample headroom (up to 32 threads per instance against 8 concurrent requests), but production services usually use non-blocking I/O, so each instance spends no thread on waiting. To do it right:
+3. **Non-blocking I/O in the cloud (planned improvement, decided 2026-10-22).** The cloud code calls Key Vault, storage, Microsoft sign-in and Graph with a blocking HTTP library on the runtime's thread pool (ADR-25). That's correct and has ample headroom (one thread for each of the 8 concurrent requests per instance, §17.3), but production services usually use non-blocking I/O, so each instance spends no thread on waiting. To do it right:
    - **An async HTTP client** (for example `httpx` or `aiohttp`), added to `azure/requirements.in` with hashes and the same checks as `requests` (TLS 1.2 minimum, no redirects, size caps, timeouts).
    - **One sync implementation for both the Pi and the cloud:** an async core with a thin blocking wrapper for the Pi, rather than two copies.
    - **Log lines must keep their invocation:** with `async` functions, the Python 3.13 runtime (1.3.0) doesn't mark the invocation for the logging path; that's why ADR-25 moved to plain functions. Re-check on a newer runtime before switching; until then this waits.
    - **Measured, not assumed:** the load tests (§17.6) compare both under the same concurrency before and after.
-5. **Sky from the device's own location (possible later feature, 2026-10-22).** Today the sky uses the configured, rounded home location, so while travelling it follows home's sunrise. If wanted: an **opt-in** switch ("use this device's location for the sky"), off by default, using the browser's Geolocation API with its permission prompt. The position would be used only in the browser, never sent to the server, and rounded like the configured one. It needs `Permissions-Policy` to allow `geolocation=(self)` (today it forbids it). The wall at home keeps the configured location: the Pi has no GPS, and network location would send Wi-Fi details to a third party.
-6. **Config that tolerates settings it doesn't know yet (planned, 2026-10-22).** The cloud config is strict: an unknown key makes it invalid, and an invalid config refuses everyone. So a new setting (such as `display.location`) can only be uploaded *after* the code that understands it is deployed; uploaded first, it would take the site down. Plan: unknown keys in harmless sections (`[display]`) are ignored with a logged warning, while anything that affects who sees what (`[access]`, calendars, detail levels, the viewer account) stays strict and fails closed.
+4. **Sky from the device's own location (possible later feature, 2026-10-22).** Today the sky uses the configured, rounded home location, so while travelling it follows home's sunrise. If wanted: an **opt-in** switch ("use this device's location for the sky"), off by default, using the browser's Geolocation API with its permission prompt. The position would be used only in the browser, never sent to the server, and rounded like the configured one. It needs `Permissions-Policy` to allow `geolocation=(self)` (today it forbids it). The wall at home keeps the configured location: the Pi has no GPS, and network location would send Wi-Fi details to a third party.
+5. **Config that tolerates settings it doesn't know yet (planned, 2026-10-22).** The cloud config is strict: an unknown key makes it invalid, and an invalid config refuses everyone. So a new setting (such as `display.location`) can only be uploaded *after* the code that understands it is deployed; uploaded first, it would take the site down. Plan: unknown keys in harmless sections (`[display]`) are ignored with a logged warning, while anything that affects who sees what (`[access]`, calendars, detail levels, the viewer account) stays strict and fails closed.
 
 ## 15. Viewing away from home through Azure (Phase 5)
 
-**Status: signed off 2026-10-21** (questions answered in §15.12). Next: the spikes R1–R5 (short throwaway experiments), then the build.
+**Status: signed off 2026-10-21** (questions answered in §15.12); spikes run and the service built and live 2026-10-22 (§15.13, §17). Where §15 and §17 differ, §17 wins.
 
 ### 15.1 Goal and scope
 - **G12. The same calendar page from a phone, iPad or browser anywhere** (for example from work or while travelling), because the Outlook app's calendar view is hard to use. Read-only, exactly as on the wall.
@@ -483,9 +482,9 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
  +--------------------------------------------------------------------------------+
  | Azure subscription for this project only (separate from any other project)     |
  |                                                                                |
- |  Function App (Flex Consumption, Python, max 1 instance)                       |
+ |  Function App (Flex Consumption, Python, max 4 instances, §17.3)               |
  |   built-in authentication: "Require authentication", personal accounts only   |
- |   platform allowlist: 3 account object IDs  -> anyone else: 403, code never runs|
+ |   platform allowlist: allowed object IDs    -> anyone else: 403, code never runs|
  |   +------------------------------+     +------------------------------------+ |
  |   | HTTP: page, /api/* (our code |     | Timer: sync every 5 min            | |
  |   | re-checks the allowlist)     |     | Graph Calendars.Read as the viewer | |
@@ -493,15 +492,15 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
  |                   | read                                   | write             |
  |                   v                                        v                   |
  |        Storage: events.json (private; managed identity only; no shared keys)  |
- |        Key Vault: viewer refresh token only (no keys, no client secrets)      |
+ |        Key Vault: refresh token + cloud config (no keys, no client secrets)   |
  |        Application Insights / Log Analytics (no event content)                |
  +--------------------------------------------------------------------------------+
 ```
 
-- **One Function App** runs both parts: the **timer** (the existing sync code: normalisation, cleaning, `$select` per detail level, Health titles only) and the **HTTP** side (the existing page and `/api/*` contract). The timer function exposes no HTTP endpoint.
+- **One Function App** runs both parts: the **timer** (the existing sync code: normalisation, cleaning, `$select` per detail level, titles-only calendars without location or notes) and the **HTTP** side (the existing page and `/api/*` contract). The timer function exposes no HTTP endpoint.
 - **Same page, same rules:** the frontend is unchanged (CSP with Trusted Types, text-only rendering, no links). Server-side checks adapted for Azure: the Host check accepts only the app's own hostname, and `Sec-Fetch-Site` and GET-only stay as they are.
-- **Same calendars and the same detail levels as the wall** (decided 2026-10-21): Health shows titles and times only, everywhere.
-- **Data at rest:** `events.json` in a private blob container, readable and writable only by the Function App's managed identity; storage shared-key access disabled. No Graph IDs; Health has no location or notes; nothing else is stored.
+- **Same calendars and the same detail levels as the wall** (decided 2026-10-21): a titles-only calendar shows titles and times only, everywhere.
+- **Data at rest:** `events.json` in a private blob container, readable and writable only by the Function App's managed identity; storage shared-key access disabled. No Graph IDs; titles-only calendars have no location or notes; nothing else is stored.
 
 ### 15.4 Who can see it: three independent checks (deny by default)
 1. **Sign-in is required for every request.** Built-in authentication is set to *Require authentication*: a browser without a session is redirected to Microsoft sign-in, and API calls get 401. Anonymous requests never reach our code. The app registration is **personal Microsoft accounts only**, so work and school accounts can't sign in at all.
@@ -513,36 +512,36 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 
 **Guarding the allowlists (ADR-28).** The IDs aren't secret (knowing one doesn't let anyone sign in); the risk is **tampering**: someone adding an ID, or emptying a list. R1 showed that **an empty platform list means "everyone"**, not "no one".
 - **Two lists, two owners; a person must be on both.** The platform list (layer 2) is set only by the prod deploy (Bicep, after my approval in GitHub); its IDs live as variables on GitHub's protected prod environment, not in the repository. The code list (layer 3) is a Key Vault secret written **only by me**, with a small script and MFA; the deploy identity (Contributor on the resource group) has no data access to Key Vault, and the Function App's own identity can only *read* that one secret. Tampering through one path can't let anyone in.
-- **Fail closed:** the Bicep refuses an empty list, a malformed ID or more entries than the configured maximum. Our code caches the secret for a few minutes and **denies everyone** if it is unreadable, empty or malformed.
+- **Fail closed:** the Bicep refuses an empty list, a malformed ID or more entries than the configured maximum. Our code re-reads the secret every 5 minutes and **denies everyone** if it is empty or malformed; if it becomes unreadable, the last good copy is used for at most 30 minutes, then everyone is denied.
 - **Every change is seen:** a free Activity Log alert emails me on any write to the Function App's sign-in or app settings; Key Vault's access log alerts on any write to the secret (and on reads by any identity but the Function App's). Key Vault keeps every version, so a bad change can be rolled back.
-- **Drift check:** a scheduled job compares the two lists, repeats the unlisted-account 403 check and alerts on any difference.
+- **Drift check (planned):** a scheduled job compares the two lists, repeats the unlisted-account 403 check and alerts on any difference.
 - **Code that skips the check:** branch protection (pull requests I review), tests that fail if the check is weakened or removed, and the drift check's 403 test.
 - **Not covered:** a fully compromised administrator (my Azure or GitHub account) could change both lists or anything else. Defences: MFA, the change alerts, Microsoft's account alerts. The blast radius is limited: Azure holds no irreplaceable data (everything rebuilds from Bicep plus one consent), the wall at home doesn't depend on Azure, and revoking the cloud sync's consent cuts off calendar access (§15.8).
 
 ### 15.5 Sessions and devices
 - Session cookie lifetime **12 hours** (decided 2026-10-21), then sign in again. *Later iteration, if wanted: a shorter session when signing in from abroad. The platform's session length is one setting for the whole app, so this would be our own check (for example on the sign-in's country), with its own privacy review; Microsoft's location-based Conditional Access isn't available for personal accounts.* The token store is **off**, because the page needs no Microsoft tokens; the sign-in only establishes who is asking.
 - **MFA on every allowed account** (Microsoft account security settings).
-- **Personal devices only.** On a shared computer, sign out (`/.auth/logout`); a sign-out link is added to the page.
+- **Personal devices only.** On a shared computer, sign out (`/.auth/logout`); a sign-out link on the page is planned.
 - **Sky backdrop (decided 2026-10-22):** where there are no photos (the online page; the wall keeps its photos), the backdrop is a muted sky gradient that follows the day: night, warming to dawn at sunrise, easing into day, toward dusk at sunset, back to night. Blended continuously in OKLCH (so it passes through pinks and lilacs, not grey) and repainted every minute. Sunrise and sunset come from NOAA's solar equations and an optional `display.location`, rounded to 0.1° (about 10 km) and kept only in the private config; without it, 6:30 and 19:00 are used. A lighter shade than photos need keeps text readable. **Scene (2026-10-23):** over the gradient sit stars (fading in after dusk), the sun and the moon where they really are (low-precision formulas, about a degree; `astro.js`), the moon drawn in its real phase with its lit side tilted towards the sun (Meeus's bright-limb angle), and three hills along the bottom tinted from the sky. East is on the left when facing the equator. In portrait the bodies use a band above the hills, below the events; in landscape they stay in the clock column. Built from SVG elements (no markup, so Trusted Types is untouched); positions glide over each minute, except on the first paint and with reduced motion. Without a location, latitude 40° and the time zone's longitude stand in.
 - **App icons (decided 2026-10-22):** a cute bunny peeking over a calendar (chosen from six drawn candidates). A favicon, an Apple touch icon and a web-app manifest (`static/icons`, drawn by `tools/make_icons.py`), all **behind sign-in like everything else**; the CSP adds `manifest-src 'self'`. Link previews in messaging apps fetch without signing in, so a shared link shows Microsoft's sign-in card; a public preview card was considered and declined, to keep every request behind sign-in.
-- iPhone and iPad: works in Safari and as an "Add to Home Screen" app; **needs iPadOS/iOS 15.4 or later** (§10). Older Safari lacks Trusted Types; the text-only rendering still applies. *The iPad to be used is under two years old (2026-10-21), so it runs a current iPadOS and meets this; spike R5 still confirms on the device.*
+- iPhone and iPad: works in Safari and as an "Add to Home Screen" app; **needs iPadOS/iOS 15.4 or later** (§10). Older Safari lacks Trusted Types; the text-only rendering still applies. Spike R5 confirms on the devices that will use it.
 
 ### 15.6 Graph access in the cloud
 - A **new app registration for cloud sync**, separate from the Pi's: personal accounts only, `Calendars.Read`, and a **confidential client** whose only credential is a **federated credential that trusts a dedicated user-assigned managed identity** (the *sync identity*; ADR-27, decided 2026-10-22, replacing the Key Vault signing key that R3 proved). Every token request carries a fresh assertion from that identity, which only the Function App can obtain. So **a stolen refresh token alone is useless**, and there is no key or certificate to protect, expire or rotate.
 - **Two identities, one job each:** the *sign-in identity* (ADR-26) is trusted only by the web sign-in registration; the *sync identity* only by the cloud-sync registration. Neither is assigned to anything else.
 - **The refresh token is stored in Key Vault, not in storage.** Only the sync identity can read or replace it; access to that one secret, nothing else. Each refresh stores the new token as a new version and disables the previous one (R3).
-- **One-time consent through an admin-only page** (ADR-27): `/manage/consent` sits behind the same sign-in **and** a separate admin allowlist in our code (my object ID only; anyone else, including the other allowed people, gets 403). It sends the browser to Microsoft to sign in as the viewer account, with PKCE and a single-use `state` bound to my session. The callback accepts only a top-level GET with that unused `state` (so the GET-only rule of §8 holds), redeems the code with the sync identity, **accepts the result only if the account is the configured viewer and the scopes are exactly `Calendars.Read` plus OpenID**, writes the refresh token straight to Key Vault, and shows only "connected as <viewer>". The PKCE verifier and `state` are kept server-side in the private container for 10 minutes at most, so no encryption key is needed. The token is never shown, logged or written elsewhere. Used at setup, and again only if consent is revoked or the token lapses. *(The paste-back tool R3 used from the laptop can't work here: a laptop can't obtain the Function App's identity token.)*
+- **One-time consent through an admin-only page** (ADR-27): `/manage/consent` sits behind the same sign-in **and** a separate admin allowlist in our code (my object ID only; anyone else, including the other allowed people, gets 403). It sends the browser to Microsoft to sign in as the viewer account, with PKCE and a single-use `state` bound to my session. The callback accepts only a top-level GET with that unused `state` (so the GET-only rule of §8 holds), redeems the code with the sync identity, **accepts the result only if the account is the configured viewer and the scopes are exactly `Calendars.Read` plus OpenID**, writes the refresh token straight to Key Vault, and shows only "connected as <viewer>". The PKCE verifier and `state` are kept server-side in the private container and accepted for 10 minutes at most (an unused record is deleted by a lifecycle rule after about a day), so no encryption key is needed. The token is never shown, logged or written elsewhere. Used at setup, and again only if consent is revoked or the token lapses. *(The paste-back tool R3 used from the laptop can't work here: a laptop can't obtain the Function App's identity token.)*
 - The Pi keeps its own public-client sign-in (ADR-2). The two are independent: revoking one doesn't affect the other.
 - **A third app registration** is used only for the web sign-in: personal accounts only, `openid profile email`, **no Graph permissions at all**, redirect `https://<app>/.auth/login/aad/callback`. Its credential: **a federated credential that trusts a user-assigned managed identity used for nothing else; no client secret exists** (spike R2 passed, §15.13, ADR-26).
 
 ### 15.7 Azure hardening
 - **A dedicated subscription** for this project (decided 2026-10-21), with no shared identities, credentials or role assignments (ADR-11).
-- Admin access with MFA; no standing data-plane roles for my own account; deployment manual from the laptop, as with code today. Infrastructure as Bicep in the repo; **no secrets in it**.
+- Admin access with MFA; no standing data-plane roles for my own account; deployment through GitHub Actions with OIDC and an approval for prod (§17.5). Infrastructure as Bicep in the repo; **no secrets in it**.
 - Key Vault: RBAC, soft delete, purge protection, all access logged; alert on any access by an identity other than the Function App.
-- Function App: HTTPS only; **minimum inbound TLS 1.3** for the site and its deployment (SCM) endpoint (decided 2026-10-22; every current browser and iOS 12.2+ supports it); **HTTP/2 on**; FTP and basic-auth publishing off; remote debugging off; **maximum instance count 1** (caps cost even under a flood of requests). HTTP/3 (QUIC) isn't offered by App Service or Functions (only by edge services such as Front Door, about $35/month) and isn't needed. Outbound calls (Graph, Key Vault) refuse anything below TLS 1.2 and use 1.3 where the server offers it.
-- **Budget alert at $5/month** and an alert on unusual request volume or repeated 403s.
+- Function App: HTTPS only; **minimum inbound TLS 1.3** for the site and its deployment (SCM) endpoint (decided 2026-10-22; every current browser and iOS 12.2+ supports it); **HTTP/2 on**; FTP and basic-auth publishing off; remote debugging off; a maximum instance count (4, ADR-23; *measured 2026-10-23: the platform doesn't hold to it, §17.3*). HTTP/3 (QUIC) isn't offered by App Service or Functions (only by edge services such as Front Door, about $35/month) and isn't needed. Outbound calls (Graph, Key Vault) refuse anything below TLS 1.2 and use 1.3 where the server offers it.
+- **Budget and alerts:** see §17.8 ($10 budget with kill switch; the flood brake on unusual request volume). *First planned as a $5 budget alert; a manually created $5 email-only budget still exists as an early warning. An alert on repeated 403s is not built.*
 - **Cost kill switch (decided 2026-10-22):** the budget alert triggers an action that **stops the Function App**. Runaway cost becomes an outage of the away-from-home page only; the wall at home is unaffected, and I restart the app once the cause is understood.
-- **Request floods (DDoS):** anonymous requests are answered by the platform's sign-in redirect and strangers who sign in get the platform's 403, so **our functions don't run for them** and no executions are billed; the instance cap bounds any execution-time cost (worst case about $31/month if one instance were busy all month); Azure's built-in network DDoS protection applies at no cost; a web application firewall (Front Door, about $35/month) is out of proportion. Spike R6 measures what a flood actually costs.
+- **Request floods (DDoS):** anonymous requests are answered by the platform's sign-in redirect and strangers who sign in get the platform's 403, so **our functions don't run for them** and no executions are billed; execution cost from allowed accounts is bounded by the flood brake and the kill switch (§17.8), not by the instance cap, which doesn't hold (§17.3); Azure's built-in network DDoS protection applies at no cost; a web application firewall (Front Door, about $35/month) is out of proportion. Spike R6 measures what a flood actually costs.
 - **Network:** baseline (public endpoints, Entra-only access to Key Vault and storage, no keys). Private endpoints would add about $30/month (mainly 3–4 private endpoints at about $7.30 each) and are not proposed for this data.
 
 ### 15.8 New threats
@@ -556,7 +555,7 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 | T24 | Session left open on a shared device | Personal devices only; 12-hour session; sign-out link | Low–Med (behavioural) |
 | T25 | Function code compromised | Identities limited to one secret and one container; no outbound except Graph and Key Vault by design | Low, contained |
 | T26 | Azure account compromise | MFA; separate subscription; Key Vault logs and alerts; budget alert | Med (same as any cloud account) |
-| T27 | Cost abuse (request flood) | Platform rejects anonymous and unlisted requests before our code; max 1 instance; free grant; request-volume alert; budget alert that stops the app (kill switch); measured in R6 | Low |
+| T27 | Cost abuse (request flood) | Platform rejects anonymous and unlisted requests before our code; free grant; the flood brake and the budget's kill switch stop the apps (§17.8); measured in R6 and the load tests | Low |
 | T28 | Refresh token stolen from Key Vault | Useless outside the Function App: Microsoft also requires an assertion from the sync identity (ADR-27; R3 proved the same property with a key, R10 repeats it); revoke consent | Low |
 | T29 | Someone else completes the consent page (a stranger, another allowed person, or a forged callback) | Admin allowlist in code; single-use `state` bound to my session; only the configured viewer account with exactly `Calendars.Read` is accepted; tested in R10 | Low |
 | T30 | An allowlist is tampered with or emptied (a bad deploy, a mistaken edit) | Two lists with different owners, a person must be on both; fail closed on empty or malformed lists; change alerts; drift check (§15.4, ADR-28) | Low |
@@ -574,7 +573,7 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 | Application Insights / Log Analytics (data) | well under the free monthly allowance | $0 |
 | **Alert rules** (Key Vault access by an unexpected identity; repeated 403s or unusual volume) | log-search alert rules are billed per rule per month; **observed on this account: about $0.31–0.33 per rule for three weeks**, so roughly $0.45–0.50 per rule per month | **about $1.00** |
 | Outbound data | well under the free monthly allowance | $0 |
-| **Total** | | **about $1.20 a month; budget alert at $5** |
+| **Total** | | **about $1.20 a month; budget alert at $5** *(superseded by §17.8)* |
 
 Alternatives priced for comparison: Azure Static Web Apps Standard (needed there for custom sign-in) about **$9/month** plus the Function App; App Service B1 about **$13/month**; private endpoints about **+$30/month**. **A custom domain is optional:** the app works on its `*.azurewebsites.net` address with Microsoft's certificate; a domain of our own is about $10–15 a year.
 
@@ -588,7 +587,7 @@ A dedicated subscription gets its own free grant, so this cost doesn't depend on
 | R2 | Can the web sign-in app use a managed-identity federated credential instead of a client secret in this configuration? | Yes, or the secret-in-Key-Vault fallback is chosen |
 | R3 | Confidential-client sync for the viewer account with a Key Vault signing key, from Flex Consumption | Token refresh works only with the Key Vault signature |
 | R4 | Cold start: how long does the first page load take after an idle hour, on a phone on mobile data? | Under about 5 seconds, or decide whether an always-ready instance is worth its cost |
-| R5 | The actual phones and iPad: Safari versions and "Add to Home Screen" behaviour with the sign-in redirect | Works on the actual devices |
+| R5 | The phones and tablets that will use it: Safari versions and "Add to Home Screen" behaviour with the sign-in redirect | Works on the actual devices |
 | R6 | Does a flood of anonymous requests cost anything? Send 10,000 unauthenticated requests to the test app and read the billing metrics (execution count and execution units) | No executions billed for rejected requests, or a measured rate the kill switch is sized for |
 
 ### 15.11 Decisions (accepted 2026-10-21)
@@ -599,14 +598,14 @@ A dedicated subscription gets its own free grant, so this cost doesn't depend on
 | ADR-17 | Three-layer authorization: require sign-in; platform allowlist of object IDs and tenant; the same allowlist re-checked in code; deny by default |
 | ADR-18 | Cloud sync as a confidential client with a non-exportable Key Vault key; refresh token in Key Vault only *(credential amended by ADR-27: a managed identity instead of the key)* |
 | ADR-19 | Three separate app registrations: Pi sync (public), cloud sync (confidential), web sign-in (no Graph permissions) |
-| ADR-20 | **Dedicated Azure subscription** (decided) with no shared identities or credentials; baseline network; max 1 instance; $5 budget alert |
+| ADR-20 | **Dedicated Azure subscription** (decided) with no shared identities or credentials; baseline network; max 1 instance; $5 budget alert *(amended by ADR-23 and ADR-24: up to 4 instances; $10 budget with kill switch)* |
 | ADR-21 | Tailscale with identity check remains the documented fallback if Azure is rejected |
 
 ### 15.12 Review answers (2026-10-21)
 1. **Subscription:** a dedicated Azure subscription.
 2. **Session length:** 12 hours on every device. Location-aware session length (for example abroad) is a possible later iteration (§15.5).
 3. **Detail away from home:** the same calendars and detail levels as the wall.
-4. **Devices:** the iPad is under two years old (model and iPadOS version to be confirmed); the phones are still to be confirmed. Both are checked in spike R5.
+4. **Devices:** confirmed in spike R5.
 
 **Signed off 2026-10-21.** Next: the spikes R1–R5. The Azure subscription and the two new app registrations are created by hand (by me, not by a script), as with the existing ones. *(Superseded for the app registrations by §17.1 and R1's finding: they are created and corrected by script, never through the portal's quick path.)*
 
@@ -615,14 +614,14 @@ All run in a throwaway resource group in the project's subscription, with test a
 
 | Spike | Result | What it changes |
 |---|---|---|
-| R1 sign-in and allowlist | **Pass.** Every allowed account signed in (a laptop browser and Safari on iOS/iPadOS); their object IDs were collected through the enrolment window, which was then closed. With the platform allowlist holding exactly those IDs, each still gets in, and the viewer account (a real personal account that signs in successfully) gets the **platform's 403**; our code never runs for it. | The portal's quick path set **four things wrong** for personal accounts (below); the build creates the registration and settings by script/Bicep only |
+| R1 sign-in and allowlist | **Pass.** Every allowed account signed in (desktop and mobile browsers); their object IDs were collected through the enrolment window, which was then closed. With the platform allowlist holding exactly those IDs, each still gets in, and the viewer account (a real personal account that signs in successfully) gets the **platform's 403**; our code never runs for it. | The portal's quick path set **four things wrong** for personal accounts (below); the build creates the registration and settings by script/Bicep only |
 | R2 web sign-in without a secret | **Pass.** Built-in authentication redeems the personal-account sign-in with a client assertion from a **user-assigned managed identity** (federated identity credential), using the documented `OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID` setting. Microsoft's documentation doesn't say whether this works for personal accounts; it does | No client secret anywhere, nothing to rotate or leak (ADR-26). **Proven:** after the secret was deleted from the app settings and the registration (0 secrets, 0 certificates, 1 federated credential), a fresh sign-in still worked |
 | R3 cloud sync with a Key Vault key | **Pass.** Refresh token alone: refused (`invalid_client`, 70002). Refresh token + an assertion signed by a different key: refused (700027). Refresh token + an assertion signed inside Key Vault: token issued, Graph read works. The refresh token rotates (new secret version, previous one disabled). The one-time consent used the paste-back sign-in and wrote the token straight to Key Vault | T28 confirmed with a key. **Superseded by ADR-27** (a managed identity instead of the key); R10 repeats these tests with it |
-| R4 first load from cold | **Pass.** With no instance running (app stopped and started, confirmed in the instance metrics), a signed-in reload on an iPhone took **2.6 s over mobile data** and 1.9 s over Wi-Fi, each starting a new instance; the next reloads took 0.5–0.6 s. Two samples, on the tiny test page; the real app loads more code at start-up | Well under the 5 s pass mark. Prod keeps its always-ready instance (ADR-23) for the stricter 2 s objective (§17.9); dev measures the real app's cold start |
+| R4 first load from cold | **Pass.** With no instance running (app stopped and started, confirmed in the instance metrics), a signed-in reload on a phone took **2.6 s over mobile data** and 1.9 s over Wi-Fi, each starting a new instance; the next reloads took 0.5–0.6 s. Two samples, on the tiny test page; the real app loads more code at start-up | Well under the 5 s pass mark. Prod keeps its always-ready instance (ADR-23) for the stricter 2 s objective (§17.9); dev measures the real app's cold start |
 | R6 flood cost | **Pass.** 2,200 anonymous requests: answered by the platform (401), **0 billed executions**. With one instance, ~56 requests/s and a few timeouts | Floods cost nothing; with 1 instance they hurt availability |
-| R7 concurrency and scale | With up to 4 instances and per-instance concurrency 8: 4–32 parallel connections ran at 84–346 requests/s, p95 67–119 ms, **0 timeouts, 0 billed executions**. Scale-out follows sustained load, not seconds-long bursts | The R6 timeouts came from the cap of 1 instance; §17.3's max 4 confirmed. Signed-in load: measured 2026-10-23 (§17.6) |
+| R7 concurrency and scale | With up to 4 instances and per-instance concurrency 8: 4–32 parallel connections ran at 84–346 requests/s, p95 67–119 ms, **0 timeouts, 0 billed executions**. Scale-out follows sustained load, not seconds-long bursts | The R6 timeouts came from the cap of 1 instance; §17.3 raised it to 4 (*the signed-in load test later found the cap isn't held: 14 instances*). Signed-in load: measured 2026-10-23 (§17.6) |
 | R9 deploy through OIDC | **Pass (2026-10-22).** The dev environment was bootstrapped and deployed by the pipeline with no stored credential: build with SBOM and signed provenance, package hash checked, infrastructure and code deployed, post-deploy checks green. Then by hand: an allowed account gets the page (both allowlists and the managed-identity sign-in on the real platform), `/api/health` answers without event content, and the viewer account (not listed) gets the platform's 403 | Three platform details found on the way, each fixed and tested: (1) GitHub's OIDC subject names the repository with permanent IDs (`owner@ownerId/name@repoId`), which the deploy identity now requires; (2) Flex Consumption has no `Http5xx` site metric, so the server-error alert uses Application Insights failed requests; (3) Flex serves managed-identity tokens on a link-local address, which the endpoint check now accepts (loopback or link-local only) |
-| R10 cloud sync with its managed identity | **Pass (2026-10-22, in prod; ADR-33 amended).** The consent page stored the viewer's refresh token in Key Vault; a reused consent link was refused; the sync then refreshed the token with only the sync identity's assertion (no key, no secret), read Graph and the calendars appeared, Health with titles only | **ADR-27 confirmed**; the Key Vault-key fallback (ADR-18) isn't needed. Found on the way: the Functions host reserves `/admin/` (the page moved to `/manage/consent`); the admin must be signed in to the website before opening the consent page (deploy/AZURE.md); the Functions Python runtime forwards only WARNING and above unless the code's logger is set to INFO |
+| R10 cloud sync with its managed identity | **Pass (2026-10-22, in prod; ADR-33 amended).** The consent page stored the viewer's refresh token in Key Vault; a reused consent link was refused; the sync then refreshed the token with only the sync identity's assertion (no key, no secret), read Graph and the calendars appeared, titles-only calendars with titles only | **ADR-27 confirmed**; the Key Vault-key fallback (ADR-18) isn't needed. Found on the way: the Functions host reserves `/admin/` (the page moved to `/manage/consent`); the admin must be signed in to the website before opening the consent page (deploy/AZURE.md); the Functions Python runtime forwards only WARNING and above unless the code's logger is set to INFO |
 
 **Settings proven for personal accounts (the build sets all of them in code):**
 - App registration: `signInAudience` **PersonalMicrosoftAccount**, which needs `api.requestedAccessTokenVersion` **2** set first. *(Quick path: AzureADMyOrg.)*
@@ -677,20 +676,20 @@ What exists, who controls it, and how to hand it to someone else (for example if
 | Environment | Where | Purpose | Always-ready | Cost |
 |---|---|---|---|---|
 | **dev** | resource group `rg-wallcal-dev` in the `wall-calendar` subscription | every merge to `main` deploys here automatically | no (scale to zero) | ~$0 |
-| **prod** | resource group `rg-wallcal-prod` | deploys only from a tagged release, after a manual approval in GitHub | **yes, 1 instance** | ~$6.50 |
+| **prod** | resource group `rg-wallcal-prod` | deploys only from a tagged release, after a manual approval in GitHub | **yes, 1 instance** | ~$6.80 |
 
 Each environment has its **own** Function App, storage, Key Vault, managed identity, app registrations (web sign-in and cloud sync) and allowlist. Dev's allowlist holds only my account; dev syncs a test calendar, not real ones (§17.6).
 
 ### 17.3 Compute and scaling
-- **Scale-out: up to 4 instances** (was 1). A flood or a busy moment no longer takes the page down; cost stays bounded by the kill switch (§17.8). *Measured 2026-10-23: the platform did not hold to this. Under 64 connections in dev, 14 instances served side by side for two minutes (Application Insights `AppRoleInstance`; the `InstanceCount` metric stayed at 1). On-demand billing is per execution, so cost follows the work, not the instance count, and the kill switch (§17.8) remains the bound; the cap can't be relied on to limit how far one client pushes the app.*
+- **Scale-out: up to 4 instances** (was 1). A flood or a busy moment no longer takes the page down; cost stays bounded by the kill switch (§17.8). *Measured 2026-10-23: the platform did not hold to this. Under 64 connections in dev, 14 instances served side by side for two minutes (Application Insights `AppRoleInstance`; the `InstanceCount` metric stayed at 1). On-demand billing counts each instance's active time (GB-s) plus executions, so more busy instances cost more; the flood brake and kill switch (§17.8) are the bound; the cap can't be relied on to limit how far one client pushes the app.*
 - **Per-instance HTTP concurrency: 8, confirmed by load tests 2026-10-23 (§17.6)** (started at 8; R1 showed the Python default of 1 stalls a capped app). R7: with 8 and up to 4 instances, the sign-in layer answered up to ~350 anonymous requests/s with no timeouts (§15.13).
 - **One always-ready instance in prod** (no cold start for anyone). 512 MB.
 - **No blocking on the runtime's event loop:** the functions are plain (not `async`), so the Python runtime runs each on its own thread pool. *(Changed 2026-10-22: with `async` functions and our own worker threads, the Python 3.13 runtime didn't tie the threads to their invocations, and none of the code's log lines reached Application Insights.)*
 - **Threads match the requests (2026-10-23):** `PYTHON_THREADPOOL_THREAD_COUNT` is set from `perInstanceConcurrency`, so every request the host sends an instance has a thread (Python's default is min(32, CPUs + 4), about 5 on a quarter-core instance).
 - **Outbound connections (2026-10-23):** one shared `requests` session per instance with keep-alive (10 connections per host). Every response is read to the end before it's closed, or its connection is closed instead of reused; the first dev load test found every events read opening a new TLS connection to storage that way, until the outbound ports ran out. A connection that fails is retried once (connecting: any method; no reply: GET only). Network errors become `AzureError`, so the page degrades as designed.
 - **Events served from a snapshot (2026-10-23):** each instance holds the page's events as one immutable snapshot, read without a lock, and asks storage whether it changed at most every 10 s; when a check is due one request makes it and the rest are served the current snapshot (stale-while-revalidate). Storage calls no longer grow with load, a storage outage serves the last good copy at once, and data is at most 10 s older than before (against a 5-minute sync).
-- **Timeouts:** `host.json` `functionTimeout` 30 s for HTTP-serving functions, 5 minutes for the sync; explicit connect/read timeouts on every outbound call (Graph, Key Vault, storage); the platform's front end ends any HTTP request after about 230 s.
-- **Health endpoint** (`/api/health`, behind sign-in like everything else) reporting sync age and dependency status, without event content.
+- **Timeouts:** `host.json` `functionTimeout` 5 minutes, for every function (the setting is host-wide; the sync needs it); explicit connect/read timeouts on every outbound call (Graph, Key Vault, storage); the platform's front end ends any HTTP request after about 230 s.
+- **Health endpoint** (`/api/health`, behind sign-in like everything else) reporting sync status and age, sign-in state and each calendar's status, without event content.
 - **Zone redundancy: off** (switch). It needs at least two always-ready instances, beyond this budget.
 
 ### 17.4 Edge and network (switches, default off)
@@ -699,18 +698,18 @@ Each environment has its **own** Function App, storage, Key Vault, managed ident
 | `edgeProtection` | Azure Front Door Standard + WAF: managed rules, rate limiting per client, bot and geo filtering; the Function App accepts traffic **only** from this Front Door (access restriction on its service tag plus the `X-Azure-FDID` header) | ~$35/month |
 | `privateNetworking` | VNet integration; Key Vault and storage through private endpoints only, public access disabled | ~$30/month |
 
-With both off (the default), protection comes from the sign-in and allowlist layers, the instance cap, the kill switch and Azure's built-in network DDoS protection (§15.7, R6).
+With both off (the default), protection comes from the sign-in and allowlist layers, the flood brake and kill switch (§17.8) and Azure's built-in network DDoS protection (§15.7, R6).
 
 ### 17.5 CI/CD and supply chain
-- **Pull request checks (GitHub Actions):** unit, server and adversarial tests; Ruff lint; Bicep build and lint; `pip-audit` on `requirements.txt`; GitHub dependency review; CodeQL code scanning; secret scanning with push protection where the plan allows; the repository's own pre-commit checks re-run in CI.
+- **Pull request checks (GitHub Actions):** unit, server and adversarial tests; Ruff lint; Bicep build (lint planned); `pip-audit` on `requirements.txt`; GitHub dependency review; CodeQL code scanning; secret scanning with push protection where the plan allows; the repository's own pre-commit checks re-run in CI.
 - **Build:** one artifact per release, from hash-pinned dependencies (`--require-hashes`), with an **SBOM** (CycloneDX) and a build provenance attestation stored with the release.
-- **Deploy:** OIDC federation from GitHub to a deploy identity that has **Contributor on the environment's resource group only** (never the subscription); dev on merge, prod on a tagged release after manual approval; `what-if` output attached to the approval.
+- **Deploy:** OIDC federation from GitHub to a deploy identity that has **Contributor on the environment's resource group only** (never the subscription); dev on merge, prod on a tagged release after manual approval; `what-if` runs in the deploy job, after the approval (showing it before the approval is planned).
 - **Branch protection on `main`:** pull requests only, required checks, no force pushes.
 - **As built (2026-10-22):** `ci.yml` (tests, the repository checks on every tracked file, Ruff, `pip-audit`, Bicep build, reproducible package, dependency review on pull requests), `codeql.yml` (Python, JavaScript and the workflows themselves, weekly too) and `deploy.yml` (build once with an SBOM and signed provenance; dev on `main`; prod on a `v*` tag after approval; the package's SHA-256 is checked before deploying; post-deploy: anonymous requests refused, TLS 1.2 refused). Every action is pinned to a commit of a release at least two weeks old; workflows get a read-only token unless a job needs more. The unlisted-account 403 check needs a signed-in browser, so it stays a manual check after deploys that touch sign-in.
 - **Why the repository is public (decided 2026-10-22, ADR-29):** on a free plan, branch protection, deploy environments with required reviewers, CodeQL, secret-scanning push protection, dependency review and artifact attestations are available only for public repositories. Security doesn't depend on the code being secret. The repository holds no secrets, no IDs and **no references to the people who use it**; the pre-commit check blocks such words (§0), and real names, IDs and calendar details live only in gitignored files and in Key Vault. Publishing started a new repository from one fresh commit, so earlier wording isn't in its history; the earlier private repository is kept as an archive.
 
 ### 17.6 Testing beyond unit tests
-- **Load tests** (in dev): find the per-instance concurrency and instance count that meet the SLOs; record the results here. Tool: `tools/loadtest.py` (signed in with a session cookie typed at a hidden prompt, never stored; refuses production hosts). Signed-in `/api/events`, 60 s per step, from Seattle to West US 2:
+- **Load tests** (in dev): find the per-instance concurrency and instance count that meet the SLOs; record the results here. Tool: `tools/loadtest.py` (signed in with a session cookie typed at a hidden prompt, never stored; refuses production hosts). Signed-in `/api/events`, 60 s per step, from the administrator's network to the app's region:
 
   | Connections | Run 1, req/s | Run 1, p95 | Run 1, errors | Run 2, req/s | Run 2, p95 | Run 2, errors |
   |---|---|---|---|---|---|---|
@@ -722,16 +721,16 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 
   **Run 1 (v1.0.9)** fell over: every events read opened a new TLS connection to storage (an unread 304 or 404 closed its connection), the outbound ports ran out, connect timeouts became 500s (they escaped the last-good-copy fallback), and a lock held across each storage call queued every request behind the slowest. **Run 2**, after the fixes in §17.3 (connections reused, network errors degrade, a lock-free events snapshot checked every 10 s, one retry, worker threads = concurrency): no errors in 40,000 requests.
 
-  **Findings.** One 512 MB instance (a quarter core) serves about 40 requests/s; beyond that, latency is queueing for CPU (server p50 about 100 ms at 4 connections, 200 ms at 8–16). Scale-out came after about three minutes of sustained load, then 14 instances (above the cap of 4; §17.3). The warm p95 target (300 ms server side) holds up to about 8 parallel requests per instance. Real use is three people polling once a minute, about 0.05 requests/s: roughly 800 times below one instance's capacity, so per-instance concurrency stays at 8 and the instance size at 512 MB.
+  **Findings.** One 512 MB instance (a quarter core) serves about 40 requests/s; beyond that, latency is queueing for CPU (server p50 about 100 ms at 4 connections, 200 ms at 8–16). Scale-out came after about three minutes of sustained load, then 14 instances (above the cap of 4; §17.3). The warm p95 target (300 ms server side) holds up to about 8 parallel requests per instance. Real use is a few people polling once a minute, well under 1 request/s: hundreds of times below one instance's capacity, so per-instance concurrency stays at 8 and the instance size at 512 MB.
 - **Failure tests:** Graph unavailable or throttling; token expired or revoked; Key Vault unreachable; storage unreachable; a request flood. Each must degrade as designed (stale data with a status, a clear error, no secrets in errors).
-- **Post-deploy checks:** an unlisted account gets 403; anonymous requests get 302/401; TLS 1.2 is refused; security headers present.
+- **Post-deploy checks:** anonymous requests get 302/401 and TLS 1.2 is refused (both in `deploy.yml`); an unlisted account gets 403 (manual: it needs a signed-in browser). A security-header check needs a signed-in request (anonymous ones get the platform's 401), so it is planned with the drift check.
 - **Dev data:** a separate test calendar with synthetic events, shared to a separate dev viewer account, so dev never holds real data.
 
 ### 17.7 Observability
-- **Application Insights** (workspace-based) with the OpenTelemetry distro; sampling on; daily data cap set so logging can't exceed the budget.
+- **Application Insights** (workspace-based), through the Functions host's built-in integration; sampling on (requests and exceptions excluded); daily data cap set so logging can't exceed the budget.
 - **Privacy-safe telemetry:** request paths, status codes, durations, dependency calls, sync counts; **never** event content, names or account IDs in logs (a hashed principal for correlation at most).
-- **Dashboards:** availability, p95 latency, error rate, sync freshness, instance count, cost.
-- **Alerts** (email): failed syncs for 30 minutes; error rate above 5%; p95 latency above target for 15 minutes; Key Vault access by an unexpected identity; request volume far above normal (the flood brake, §17.8); budget thresholds.
+- **Dashboards (planned):** availability, p95 latency, error rate, sync freshness, instance count, cost.
+- **Alerts** (email): no successful sync for 30 minutes; more than 5 failed requests in 15 minutes; Key Vault access by an unexpected identity; any change to the Function App's settings, including the allowlist (Activity Log); request volume far above normal (the flood brake, §17.8); budget thresholds. *Planned: p95 latency above target for 15 minutes.*
 
 ### 17.8 Cost controls
 - **Budget $10/month** on the `wall-calendar` subscription (both environments); email alerts at 50%, 80% and 100% of actual and 100% of forecast.
@@ -755,12 +754,12 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 | Latency, warm (p95, server side) | under 300 ms |
 | First load after idle | under 2 s (always-ready instance) |
 | Data freshness | events no older than 10 minutes, 99% of the time |
-| Security | zero requests served to principals outside the allowlist (verified by the post-deploy and periodic checks) |
+| Security | zero requests served to principals outside the allowlist (verified after deploys; periodically once the drift check is built) |
 
 The wall at home keeps its own objectives: it works without the internet, from cached data.
 
 ### 17.10 Operations
-Runbooks in the repository: incident response (page down, sync failing, suspected compromise); credential review (there are no keys or client secrets to rotate; the refresh token rotates itself; re-consent through the admin page); revocation (§15.8); disaster recovery (rebuild an environment from Bicep and re-consent); restoring after the kill switch. A short post-incident note for anything that triggers an alert.
+Runbooks in the repository (`deploy/AZURE.md`, Operations): sync failing, credential review (there are no keys or client secrets to rotate; the refresh token rotates itself; re-consent through the admin page), revocation (§15.8), restoring after the kill switch, and what each alert means. *Planned: incident response (page down, suspected compromise) and disaster recovery (rebuild an environment from Bicep and re-consent) written out step by step.* A short post-incident note for anything that triggers an alert.
 
 ### 17.11 New experiments
 | Experiment | Question | Pass |
@@ -778,11 +777,10 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | ADR-24 | Budget $10/month with a kill switch that stops both Function Apps at 100% |
 | ADR-25 | Python stays the implementation language; functions are plain and run on the runtime's thread pool (*amended 2026-10-22*, was async handlers); per-instance concurrency and instance limits come from load tests |
 | ADR-29 | The repository is **public**, started fresh with no references to the people who use it; enforced by the pre-commit check (§17.5) |
-| ADR-30 | **No MSAL in the cloud:** the cloud code makes three plain OAuth calls (refresh, consent code redemption, managed-identity assertion). Its runtime dependencies are `azure-functions` and `requests` only, pinned with hashes. The Pi and laptop keep MSAL |
+| ADR-30 | **No MSAL in the cloud:** the cloud code makes three plain OAuth calls (refresh, consent code redemption, managed-identity assertion). Its runtime dependencies are `azure-functions`, `requests` and `tzdata` (for the configured time zone), pinned with hashes. The Pi and laptop keep MSAL |
 | ADR-31 | **Cloud config in Key Vault, written only by me:** calendars (Graph IDs, names, colours, detail levels), display settings, the code allowlist and the admin ID, as one TOML secret. Changing a detail level is as sensitive as changing the allowlist, so it gets the same protection (ADR-28). Nothing personal is in the repository |
 | ADR-32 | **Two layers of infrastructure:** *foundation* (identities, Key Vault, storage, role assignments), deployed rarely by me; *app* (Function App, its settings, sign-in settings with the platform allowlist, code), deployed by the pipeline with Contributor on the resource group. The app registrations and their federated credentials are made by a one-time bootstrap script I run; the pipeline has no directory permissions |
 | ADR-33 | **Dev uses its own viewer account** with a test calendar of synthetic events (§17.6); until it exists, dev runs with no calendar (the sync skips, deliberately). *Amended 2026-10-22: the dev viewer account is deferred, so **R10 runs in prod** with the real viewer account. Its refusal tests (another account at the consent prompt, a non-admin, a reused or forged `state`) store nothing; if the managed-identity refresh fails there, the fallback is ADR-18* |
-
 | ADR-34 | **Built as (2026-10-22):** four user-assigned identities per environment (app: storage and reading the config; sign-in; sync; deploy), all created with their role assignments in the foundation. Role assignments on the two Key Vault secrets are per secret. **Enrolment** needs both the deploy switch `ENROLMENT_OPEN` (lifts the platform allowlist) and `enrolment_until` in the config (at most 30 minutes ahead); a newcomer sees only their own ID. **Workflow logs are public**, so every environment value (allowed IDs, client IDs, subscription, alert email) is a GitHub environment *secret*, masked in logs; parameters go to a file, never to the output. The cloud config also holds the **time zone** for the sync's day boundaries (Azure runs on UTC). The page and `/api/*` share one catch-all function; other sites may only *navigate* to pages (Fetch Metadata), never call `/api/*` |
 
 *Note on the two identities (ADR-26, ADR-27):* both are assigned to the same Function App, so any of its code can use either. Keeping them apart limits **which app registration trusts which identity**; it is not isolation between pieces of code.
@@ -791,10 +789,7 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 
 | Version | Date | Change |
 |---|---|---|
-| 0.1 | 2026-10-04 | First draft: critique of the suggested architecture (§3), full design for review |
-| 0.2 | 2026-10-04 | Open questions answered: ADR-1 accepted; ADR-11 independence (§0) and personal details removed from this repo; ADR-12 display defaults and `show_notes`; §9.0 hardware recommendation; ADR-14 Inter font |
-| 0.3 | 2026-10-21 | Visual baseline approved from the interactive mockup (§10.1) |
-| 0.4 | 2026-10-21 | Phase 1 done (§12.5): stdlib-only, `unittest` instead of pytest, `--config` instead of an environment override, server hardening additions |
+| 0.31 | 2026-10-23 | Review against the code: §9 (Pi services, kiosk, image), §8.1 routes and CSP, the status of §15 and §17, planned items marked as planned (drift check, sign-out link, dashboards, latency alert, Bicep lint, what-if before approval, runbooks); real-setup details replaced by generic wording; sky scene, app icons and the moon's tilt (§15.5); the flood brake, and the ops deployment found never run (§17.8) |
 | 0.30 | 2026-10-23 | Load tests in dev: results, the fixes they led to, and the instance cap not holding (§17.3, §17.6) |
 | 0.29 | 2026-10-22 | ADR-25 amended (plain functions on the runtime's thread pool); non-blocking I/O recorded as a planned improvement (§14) |
 | 0.28 | 2026-10-22 | Prod live; R10 passed in prod, ADR-27 confirmed (§15.13) |
@@ -809,15 +804,19 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | 0.19 | 2026-10-22 | §15.9 cost corrected to about $1.20/month (alert rules were missing) |
 | 0.18 | 2026-10-21 | §16 ownership and handover checklist; code now in a private GitHub repository |
 | 0.17 | 2026-10-21 | **§15 signed off**: remote viewing through Azure (ADR-16 to ADR-21 accepted) |
-| 0.16 | 2026-10-21 | §15 review answers: dedicated subscription, 12-hour sessions (location-aware later), same detail as the wall, recent iPad |
+| 0.16 | 2026-10-21 | §15 review answers: dedicated subscription, 12-hour sessions (location-aware later), same detail as the wall, devices checked in R5 |
 | 0.15 | 2026-10-21 | **Proposed** §15: viewing away from home through Azure behind Microsoft sign-in with a three-layer allowlist; cost estimate; spikes R1–R5 (for review, not signed off) |
 | 0.14 | 2026-10-21 | ADR-8: the sync window always includes the past week; the clock change on 1 Nov 2026 simulated and correct |
 | 0.13 | 2026-10-21 | The Today tab is now Day; other days show a relative hint in the heading (§10.2) |
 | 0.12 | 2026-10-21 | Month view: coloured dots instead of text chips (§10.2) |
 | 0.11 | 2026-10-21 | **Phase 3 done on the laptop** (§12.8): fetcher, token cache, `calendars --add`; removed shares drop their events; minute-aligned timers, hidden-page pause and 304 answers; end times and hover tooltips |
-| 0.10 | 2026-10-21 | **S1 passed** (§12.7): browser sign-in with PKCE replaces device code; `Calendars.Read`; paste-back sign-in on the Pi; ADR-15 enforced by `$select`; ADR-5 correction; one calendar not shared yet |
+| 0.10 | 2026-10-21 | **S1 passed** (§12.7): browser sign-in with PKCE replaces device code; `Calendars.Read`; paste-back sign-in on the Pi; ADR-15 enforced by `$select`; ADR-5 correction |
 | 0.9 | 2026-10-21 | Pinned dependencies created for S1; ADR-5: explicit Windows ACL for the token directory |
 | 0.8 | 2026-10-21 | ADR-2 amended: `Calendars.Read.Shared`; app registration settings for the redesigned portal; explicit TLS 1.2 minimum |
 | 0.7 | 2026-10-21 | Pi deployment files, setup checklist and `fwcal check` (§9); socket activation in the server |
 | 0.6 | 2026-10-21 | Phase 1 security review and fixes (§12.6); web socket held by systemd |
-| 0.5 | 2026-10-21 | Health calendar: per-calendar detail level (ADR-15); Health shows titles and times only; S2 checks reduced-permission shares; mockup is the visual reference |
+| 0.5 | 2026-10-21 | Per-calendar detail level (ADR-15); a sensitive calendar shows titles and times only; S2 checks reduced-permission shares; mockup is the visual reference |
+| 0.4 | 2026-10-21 | Phase 1 done (§12.5): stdlib-only, `unittest` instead of pytest, `--config` instead of an environment override, server hardening additions |
+| 0.3 | 2026-10-21 | Visual baseline approved from the interactive mockup (§10.1) |
+| 0.2 | 2026-10-04 | Open questions answered: ADR-1 accepted; ADR-11 independence (§0) and personal details removed from this repo; ADR-12 display defaults and `show_notes`; §9.0 hardware recommendation; ADR-14 Inter font |
+| 0.1 | 2026-10-04 | First draft: critique of the suggested architecture (§3), full design for review |
