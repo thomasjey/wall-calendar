@@ -14,7 +14,7 @@ from pathlib import Path
 
 import requests
 
-from . import auth, paths, store
+from . import netauth, paths, store
 from .config import Config, ConfigError
 from .graph import Graph, GraphError
 from .normalize import InvalidEvent, normalize_event
@@ -26,11 +26,11 @@ OK, PARTIAL, CONFIG, REAUTH = 0, 1, 2, 3
 _FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def _previous(path: Path) -> dict | None:
-    try:
-        return store.load_events(path)
-    except (OSError, store.InvalidEventsFile):
-        return None
+def local_token(cfg: Config, session) -> str:
+    """The Pi and laptop sign-in (MSAL). Imported here so the cloud never loads MSAL (ADR-30)."""
+    from . import auth
+
+    return auth.access_token(cfg, session)
 
 
 def check_config(cfg: Config) -> None:
@@ -41,34 +41,35 @@ def check_config(cfg: Config) -> None:
         raise ConfigError(f"calendars without graph_id: {missing}")
 
 
-def run(cfg: Config, *, session=None, token_fn=auth.access_token, now: datetime | None = None,
-        events_path: Path | None = None, sleep=time.sleep) -> int:
+def run(cfg: Config, *, session=None, token_fn=local_token, now: datetime | None = None,
+        events_path: Path | None = None, events=None, sleep=time.sleep) -> int:
+    """events: where the payload is kept (load/save); by default the local file."""
     try:
         check_config(cfg)
     except ConfigError as exc:
         log.error("%s", exc)
         return CONFIG
-    path = events_path or paths.events_path(mock=False)
+    events_store = events or store.FileEventStore(events_path or paths.events_path(mock=False))
     now = now or datetime.now().astimezone()
     now_utc = now.astimezone(timezone.utc)
     start, end = sync_window(now.date(), cfg.lookahead_days, cfg.display.week_start)
     q_start, q_end = utc_query_range(start, end)
 
-    previous = _previous(path)
+    previous = events_store.load()
     prev_cals = {c["key"]: c for c in (previous or {}).get("calendars", [])}
     prev_events: dict[str, list[dict]] = {}
     for e in (previous or {}).get("events", []):
         prev_events.setdefault(e["cal"], []).append(e)
 
-    session = session or auth.http_session()
+    session = session or netauth.http_session()
     auth_state = "ok"
     graph = None
     try:
         graph = Graph(session, token_fn(cfg, session), sleep=sleep)
-    except auth.ReauthRequired as exc:
+    except netauth.ReauthRequired as exc:
         log.warning("sign-in needed: %s", exc)
         auth_state = "reauth_required"
-    except (auth.AuthError, requests.RequestException) as exc:
+    except (netauth.AuthError, requests.RequestException) as exc:
         log.warning("could not get a token: %s", type(exc).__name__)
         auth_state = (previous or {}).get("auth", "ok")
 
@@ -109,7 +110,7 @@ def run(cfg: Config, *, session=None, token_fn=auth.access_token, now: datetime 
     payload = {"schema": store.SCHEMA, "source": "graph", "generatedAt": now_utc.strftime(_FMT),
                "auth": auth_state, "window": {"start": start.isoformat(), "end": end.isoformat()},
                "calendars": calendars, "events": events}
-    store.write_events(path, store.validate(payload))
+    events_store.save(store.validate(payload))
     if auth_state == "reauth_required":
         return REAUTH
     return PARTIAL if failed else OK

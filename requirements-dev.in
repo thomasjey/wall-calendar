@@ -1,3 +1,5 @@
 # Development tools only; never installed on the Pi.
 #   pip-compile --generate-hashes --allow-unsafe -o requirements-dev.txt requirements-dev.in
 pip-tools
+# The cloud's time-zone database, so its tests run on Windows too (azure/requirements.in).
+tzdata

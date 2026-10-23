@@ -1,0 +1,7 @@
+# Cloud runtime dependencies (DESIGN ADR-30): no MSAL, no Azure SDK.
+# Regenerate requirements.txt with:
+#   pip-compile --generate-hashes --allow-unsafe -o azure/requirements.txt azure/requirements.in
+azure-functions
+requests
+# The IANA time-zone database, so the sync window follows the configured zone.
+tzdata
