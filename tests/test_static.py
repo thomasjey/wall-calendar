@@ -49,7 +49,7 @@ class FrontendSource(unittest.TestCase):
                 self.assertIsNone(re.search(r"<style\b|\sstyle=|\son[a-z]+=", text, re.IGNORECASE))
 
     def test_only_expected_file_types(self):
-        allowed = {".html", ".css", ".js", ".woff2", ".txt", ".md"}
+        allowed = {".html", ".css", ".js", ".woff2", ".txt", ".md", ".png", ".webmanifest"}
         for path in STATIC_DIR.rglob("*"):
             if path.is_file():
                 self.assertIn(path.suffix, allowed, path)
