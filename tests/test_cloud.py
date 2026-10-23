@@ -191,7 +191,7 @@ class OAuthTest(unittest.TestCase):
         return FakeHTTP([("POST", lambda u: u == self.oauth.TOKEN_URL, FakeResponse(status, body))])
 
     def test_authorize_url(self):
-        url = self.oauth.authorize_url(CLIENT, f"https://{HOST}/admin/consent/callback", state="s", nonce="n",
+        url = self.oauth.authorize_url(CLIENT, f"https://{HOST}/manage/consent/callback", state="s", nonce="n",
                                        challenge="c", login_hint="viewer@example.com")
         self.assertTrue(url.startswith("https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"))
         for part in ("code_challenge_method=S256", "response_type=code", "state=s", "nonce=n",
@@ -520,18 +520,24 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.get("/api/events", oid=OID_X).status, 403)  # still no data
 
     def test_admin_routes(self):
-        self.assertEqual(self.get("/admin/consent", oid=OID_B).status, 403)
-        r = self.get("/admin/consent")
+        self.assertEqual(self.get("/manage/consent", oid=OID_B).status, 403)
+        r = self.get("/manage/consent")
         self.assertEqual((r.status, r.headers["Location"]), (302, "https://login.example/authorize"))
-        ok = self.web.handle(self.web_mod.Request("GET", "/admin/consent/callback",
+        ok = self.web.handle(self.web_mod.Request("GET", "/manage/consent/callback",
                                                   {"host": HOST, "x-ms-client-principal": principal_header()},
                                                   {"state": "s", "code": "c"}))
         self.assertEqual(ok.status, 200)
         self.consent.fail = True
-        bad = self.web.handle(self.web_mod.Request("GET", "/admin/consent/callback",
+        bad = self.web.handle(self.web_mod.Request("GET", "/manage/consent/callback",
                                                    {"host": HOST, "x-ms-client-principal": principal_header()},
                                                    {"state": "s", "code": "c"}))
         self.assertEqual(bad.status, 400)
+
+    def test_no_route_under_a_host_reserved_prefix(self):
+        from fwcal.cloud import web
+
+        routes = set(web.PAGES) | {"/api/events", "/api/settings", "/api/photos", "/api/health"}
+        self.assertFalse([r for r in routes if r.startswith(web.HOST_RESERVED)])
 
     def test_health_has_no_content(self):
         h = json.loads(self.get("/api/health").body)
@@ -575,7 +581,7 @@ class ConsentTest(unittest.TestCase):
 
         url = self.consent.start(self.admin, HOST, "viewer@example.com")
         q = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
-        self.assertEqual(q["redirect_uri"], f"https://{HOST}/admin/consent/callback")
+        self.assertEqual(q["redirect_uri"], f"https://{HOST}/manage/consent/callback")
         return q
 
     def finish(self, q, who=None, account="Viewer@Example.com", **query):

@@ -18,14 +18,16 @@ from datetime import UTC, datetime
 
 from ..server import SECURITY_HEADERS
 from . import principal as principals
-from .consent import Consent, ConsentError
+from .consent import CALLBACK, START, Consent, ConsentError
 from .oauth import CONSUMER_TENANT
 from .settings import SettingsCache, SettingsUnavailable
 from .storage import EventsCache
 
 log = logging.getLogger("fwcal.cloud.web")
 
-PAGES = frozenset({"/", "/enrol", "/admin/consent", "/admin/consent/callback"})
+PAGES = frozenset({"/", "/enrol", START, CALLBACK})
+# The Functions host answers these itself; no route of ours may live under them.
+HOST_RESERVED = ("/admin/", "/runtime/")
 TEXT = "text/plain; charset=utf-8"
 JSON = "application/json"
 
@@ -107,7 +109,7 @@ class Web:
             log.warning("refused: %s not on the allowlist", who.log_id())
             return _text(403, "Error 403")
 
-        if path in ("/admin/consent", "/admin/consent/callback"):
+        if path in (START, CALLBACK):
             return self._consent_route(req, who, access.admins, settings.config.expected_account)
         if path in self._static:
             body, ctype = self._static[path]
@@ -141,7 +143,7 @@ class Web:
             log.warning("refused: %s is not an admin", who.log_id())
             return _text(403, "Error 403")
         host = req.headers["host"].lower()
-        if req.path == "/admin/consent":
+        if req.path == START:
             return Response(302, b"", TEXT, {"Location": self._consent.start(who, host, viewer)})
         try:
             account = self._consent.finish(who, host, req.query, viewer)
