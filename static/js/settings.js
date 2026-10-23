@@ -3,7 +3,7 @@
 
 export const DEFAULTS = Object.freeze({
   clock: '12h', weekStart: 'sunday', showNotes: true, idleSeconds: 120,
-  photoIntervalSeconds: 600, nightDim: [], mock: false,
+  photoIntervalSeconds: 600, nightDim: [], location: null, mock: false,
 });
 
 const isTime = (t) => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
@@ -14,6 +14,8 @@ const CHECKS = {
   idleSeconds: (v) => Number.isInteger(v) && v >= 15 && v <= 3600,
   photoIntervalSeconds: (v) => Number.isInteger(v) && v >= 10 && v <= 86400,
   nightDim: (v) => Array.isArray(v) && (v.length === 0 || (v.length === 2 && v.every(isTime))),
+  location: (v) => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number' && Number.isFinite(n))
+    && Math.abs(v[0]) <= 90 && Math.abs(v[1]) <= 180,
   mock: (v) => typeof v === 'boolean',
 };
 

@@ -45,6 +45,8 @@ async function showNext() {
 
 export async function initPhotos(intervalSeconds) {
   await loadList();
+  // No photos (the online page keeps them at home): a sky that follows the clock instead.
+  document.body.classList.toggle('sky', !urls.length);
   await showNext();
   setInterval(showNext, intervalSeconds * 1000);
   setInterval(loadList, LIST_REFRESH_MS);

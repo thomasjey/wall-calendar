@@ -149,3 +149,104 @@ export function inDailyRange(now, range) {
   const b = mins(range[1]);
   return a <= b ? n >= a && n < b : n >= a || n < b;
 }
+
+// ----- the sky backdrop (DESIGN §10.1), shown when there are no photos -----
+
+// Sunrise and sunset for the local date of `day` at [lat, lon], as Dates, using
+// NOAA's solar equations (accurate to a minute or two). null at the poles on
+// days the sun doesn't rise or set.
+export function sunTimes(day, lat, lon) {
+  const y = day.getFullYear();
+  const start = Date.UTC(y, 0, 1);
+  const n = Math.round((Date.UTC(y, day.getMonth(), day.getDate()) - start) / 86400000);
+  const g = (2 * Math.PI / 365) * n;
+  const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
+    - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g)
+    + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const rad = Math.PI / 180;
+  const arg = Math.cos(90.833 * rad) / (Math.cos(lat * rad) * Math.cos(decl)) - Math.tan(lat * rad) * Math.tan(decl);
+  if (arg < -1 || arg > 1) return null;
+  const ha = Math.acos(arg) / rad;
+  const utcMidnight = Date.UTC(y, day.getMonth(), day.getDate());
+  return {
+    sunrise: new Date(utcMidnight + (720 - 4 * (lon + ha) - eqtime) * 60000),
+    sunset: new Date(utcMidnight + (720 - 4 * (lon - ha) - eqtime) * 60000),
+  };
+}
+
+// Four gradient stops (top to bottom) for each part of the day; muted so white
+// text stays readable everywhere.
+export const SKIES = Object.freeze({
+  night: ['#0b1022', '#121a33', '#18213d', '#1c2644'],
+  dawn: ['#1c2346', '#4a3f6b', '#9a6577', '#c98a72'],
+  day: ['#24497a', '#3a6fa3', '#4f85b6', '#5b8fbd'],
+  dusk: ['#191d3c', '#3f3463', '#87536f', '#b56e66'],
+});
+
+// Colours are blended in OKLCH, the way the eye sees them: orange to blue goes
+// through soft pink and lilac, as a real sky does, not through muddy grey.
+const toLinear = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+const fromLinear = (v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
+
+function hexToOklch(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => toLinear(parseInt(hex.slice(i, i + 2), 16) / 255));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  return [L, Math.hypot(A, B), Math.atan2(B, A)];
+}
+
+function oklchToHex([L, C, h]) {
+  const A = C * Math.cos(h);
+  const B = C * Math.sin(h);
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+  const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+  const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+  return '#' + rgb.map((v) => Math.round(Math.min(1, Math.max(0, fromLinear(v))) * 255)
+    .toString(16).padStart(2, '0')).join('');
+}
+
+function mixColor(a, b, t) {
+  if (t <= 0) return a;
+  if (t >= 1) return b;
+  const [l1, c1, h1] = hexToOklch(a);
+  const [l2, c2, h2] = hexToOklch(b);
+  let dh = h2 - h1;  // the shorter way round the hue wheel
+  if (dh > Math.PI) dh -= 2 * Math.PI;
+  if (dh < -Math.PI) dh += 2 * Math.PI;
+  return oklchToHex([l1 + (l2 - l1) * t, c1 + (c2 - c1) * t, h1 + dh * t]);
+}
+
+// The sky's gradient stops at `now`: night, warming to dawn at sunrise, easing
+// into day, toward dusk at sunset, back to night. Without a location (or on a
+// day with no sunrise), sunrise is taken as 6:30 and sunset as 19:00.
+export function skyColors(now, location) {
+  const sun = location ? sunTimes(now, location[0], location[1]) : null;
+  const at = (h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
+  const rise = sun ? sun.sunrise.getTime() : at(6, 30);
+  const set = sun ? sun.sunset.getTime() : at(19, 0);
+  const min = 60000;
+  const mid = (rise + set) / 2;
+  const keys = [
+    [rise - 90 * min, 'night'], [rise, 'dawn'], [Math.min(rise + 120 * min, mid), 'day'],
+    [Math.max(set - 120 * min, mid), 'day'], [set, 'dusk'], [set + 90 * min, 'night'],
+  ];
+  const t = now.getTime();
+  if (t <= keys[0][0] || t >= keys[keys.length - 1][0]) return [...SKIES.night];
+  for (let i = 1; i < keys.length; i++) {
+    const [t1, s1] = keys[i];
+    const [t0, s0] = keys[i - 1];
+    if (t <= t1) {
+      const f = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+      return SKIES[s0].map((c, j) => mixColor(c, SKIES[s1][j], f));
+    }
+  }
+  return [...SKIES.night];
+}

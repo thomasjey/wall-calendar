@@ -47,6 +47,14 @@ class Config(unittest.TestCase):
         cfg = config.parse({})
         self.assertEqual((cfg.display.clock, cfg.display.week_start, cfg.display.show_notes), ("12h", "sunday", True))
 
+    def test_location(self):
+        self.assertIsNone(self.parse("").display.location)
+        self.assertEqual(self.parse("[display]\nlocation = [51.4987, -0.1276]").display.location, (51.5, -0.1))
+        self.assertEqual(self.parse("[display]\nlocation = [-34, 151]").display.location, (-34.0, 151.0))
+        for bad in ("[91, 0]", "[0, 181]", '["51", "0"]', "[51.5]", "[true, false]", "[1, 2, 3]"):
+            with self.subTest(bad=bad), self.assertRaises(config.ConfigError):
+                self.parse(f"[display]\nlocation = {bad}")
+
     def test_example_file_parses(self):
         cfg = config.load(REPO_ROOT / "config.example.toml")
         self.assertTrue(cfg.calendars)

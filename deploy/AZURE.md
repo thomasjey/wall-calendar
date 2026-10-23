@@ -47,6 +47,7 @@ lookahead_days = 35
 clock = "12h"
 week_start = "sunday"
 show_notes = true
+# location = [lat, lon]         # optional, rounded to 0.1 degree: the sky backdrop follows real sunrise and sunset
 
 [[calendars]]                   # as in config.example.toml, with graph_id
 key = "home"
