@@ -24,7 +24,11 @@ Signed in with `az login` (MFA) and `gh auth login`:
    `gh secret set ALLOWED_OBJECT_IDS --env dev` (comma-separated object IDs) and `gh secret set ALERT_EMAIL --env dev`.
 4. Write the cloud config (below): `.\tools\azure\put_config.ps1 -Env dev -File <path>`.
 5. Deploy: push to `main` (dev) or push a `v*` tag and approve (prod).
-6. Connect the calendar: open `https://<app>/manage/consent`, sign in as the viewer account, allow calendar access. The first sync follows within 5 minutes.
+6. Connect the calendar, in one browser window:
+   1. Open `https://<app>/` and sign in **as yourself** (an admin). This is the website's own sign-in.
+   2. In the same tab, open `https://<app>/manage/consent`. Microsoft's sign-in appears a second time: this one is the calendar consent. Choose the **viewer account** and allow calendar access. Expect "Connected as …".
+
+   Signing in as the viewer at the *first* prompt signs the viewer in to the website, which the allowlist refuses (403). The first sync follows within 5 minutes.
 
 Prod is the same with `-Env prod`.
 
