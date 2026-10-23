@@ -649,6 +649,38 @@ class RunSyncTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
+class SyncOutcomeTest(unittest.TestCase):
+    def run_with(self, code):
+        from fwcal import sync
+        from fwcal.cloud import app
+        from fwcal.cloud.settings import SettingsCache
+
+        class Services:
+            settings = SettingsCache(lambda: CONFIG_TOML)
+            events_store = tokens = session = None
+
+        orig_services, orig_run = app._services, sync.run
+        app._services, sync.run = Services(), lambda *a, **k: code
+        try:
+            return app.run_sync()
+        finally:
+            app._services, sync.run = orig_services, orig_run
+
+    def test_success_returns_ok(self):
+        self.assertEqual(self.run_with(0), 0)
+
+    def test_incomplete_sync_fails_visibly_without_content(self):
+        from fwcal.cloud.app import SyncIncomplete
+
+        for code, words in ((1, "could not be read"), (2, "configuration"), (3, "/manage/consent")):
+            with self.subTest(code=code), self.assertRaises(SyncIncomplete) as cm:
+                self.run_with(code)
+            self.assertIn(f"code {code}", str(cm.exception))
+            self.assertIn(words, str(cm.exception))
+            self.assertNotIn("viewer@example.com", str(cm.exception))
+
+
+@unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
 class ThreadLoggingTest(unittest.TestCase):
     def test_log_binding_runs_first_in_the_worker_thread(self):
         import asyncio

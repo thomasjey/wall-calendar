@@ -21,6 +21,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 from .. import sync
 from ..netauth import http_session
@@ -110,7 +111,22 @@ async def handle(req: Request, bind_logs=None) -> Response:
     return await asyncio.to_thread(_in_thread, bind_logs, _handle, req)
 
 
+class SyncIncomplete(RuntimeError):
+    """Raised so the platform records the timer run as Failed, with this short,
+    content-free reason. The sync alert counts the platform's own Succeeded
+    records, which don't depend on Python log forwarding."""
+
+    REASONS: ClassVar[dict[int, str]] = {sync.PARTIAL: "a calendar could not be read; the last good data is kept",
+               sync.CONFIG: "configuration problem",
+               sync.REAUTH: "sign-in needed: open /manage/consent"}
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"sync incomplete: code {code} ({self.REASONS.get(code, 'unknown')})")
+        self.code = code
+
+
 def run_sync() -> int:
+    """Returns sync.OK, or raises SyncIncomplete."""
     s = services()
     settings = s.settings.get()
     if not settings.config.calendars:
@@ -120,6 +136,8 @@ def run_sync() -> int:
     code = sync.run(settings.config, session=s.session, token_fn=s.tokens, events=s.events_store,
                     now=datetime.now(settings.tz))
     log.info("sync finished with code %d", code)
+    if code != sync.OK:
+        raise SyncIncomplete(code)
     return code
 
 
