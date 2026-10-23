@@ -1,4 +1,5 @@
-"""Pre-commit check: blocks secrets, private files and personal references (DESIGN §0, §7).
+"""Pre-commit check: blocks secrets, private files, personal references and the
+strings in the local blocklist (DESIGN §0, §7).
 
 Enabled with `git config core.hooksPath tools/git-hooks`. Never bypass it with
 --no-verify; fix the commit instead.
@@ -54,6 +55,37 @@ def personal_words(text: str) -> list[str]:
     return found
 
 
+BLOCKLIST = "info/fwcal-blocklist"
+
+
+def load_blocklist() -> list[re.Pattern[str]]:
+    """Exact strings that must never be committed: real names, account IDs,
+    email addresses, calendar names. Kept in .git/info/fwcal-blocklist, which
+    git never uploads, so the list itself never becomes public. One entry per
+    line; '#' starts a comment. Matched case-insensitively as whole words, so
+    a blocked name doesn't block a longer word that contains it."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--git-path", BLOCKLIST], check=True, capture_output=True,
+                             text=True).stdout.strip()
+        with open(out, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return []  # no list (for example in CI): nothing extra to check
+    entries = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    return [re.compile(rf"(?<![A-Za-z0-9]){re.escape(e)}(?![A-Za-z0-9])", re.IGNORECASE) for e in entries]
+
+
+def blocked_strings(text: str, blocklist: list[re.Pattern[str]]) -> list[str]:
+    """Where blocklist entries occur. Reports the entry's number in the list,
+    never the text itself."""
+    found = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        for number, rx in enumerate(blocklist, 1):
+            if rx.search(line):
+                found.append(f"line {lineno}: entry {number} of {BLOCKLIST}")
+    return found
+
+
 BINARY_SUFFIXES = (".woff2", ".png", ".jpg", ".jpeg", ".webp")
 
 
@@ -69,7 +101,7 @@ def invisible_chars(text: str) -> list[str]:
     return found
 
 
-def problems(path: str, content: bytes) -> list[str]:
+def problems(path: str, content: bytes, blocklist: list[re.Pattern[str]] | None = None) -> list[str]:
     found = []
     if path not in ALLOWED_PATHS:
         found += [f"{path}: {why}" for rx, why in BLOCKED_PATHS if rx.search(path)]
@@ -82,6 +114,7 @@ def problems(path: str, content: bytes) -> list[str]:
         else:
             found += [f"{path}: invisible character at {where}" for where in invisible_chars(text)[:5]]
             found += [f"{path}: personal reference at {where}" for where in personal_words(text)[:5]]
+            found += [f"{path}: blocked string at {where}" for where in blocked_strings(text, blocklist or [])[:5]]
     return found
 
 
@@ -95,14 +128,15 @@ def main(paths: list[str]) -> int:
     """No arguments: the staged files (the git hook). With file arguments: those
     files as they are on disk (CI runs it on every tracked file)."""
     found = []
+    blocklist = load_blocklist()
     if paths:
         for path in paths:
             with open(path, "rb") as f:
-                found += problems(path.replace("\\", "/"), f.read())
+                found += problems(path.replace("\\", "/"), f.read(), blocklist)
     else:
         for path in staged():
             content = subprocess.run(["git", "show", f":{path}"], check=True, capture_output=True).stdout
-            found += problems(path, content)
+            found += problems(path, content, blocklist)
     if found:
         print("pre-commit: commit blocked (see DESIGN.md section 7):", *found, sep="\n  ", file=sys.stderr)
         return 1
