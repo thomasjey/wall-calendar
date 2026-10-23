@@ -73,6 +73,24 @@ class PreCommit(unittest.TestCase):
                 self.assertEqual(blocked_strings(text, bl), [])
         self.assertEqual(problems("notes.md", b"Alexandra"), [])  # no list, nothing blocked
 
+    def test_commit_message(self):
+        import os
+        import tempfile
+
+        from tools.precommit_check import main
+
+        cases = {"Add the week view\n\nCo-Authored-By: someone\n": 0,
+                 "Show it to my " + "ki" + "ds\n": 1,
+                 "Fine\n# a comment line about my " + "wi" + "fe is ignored\n": 0}
+        for text, expected in cases.items():
+            with self.subTest(text=text[:20]), tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False,
+                                                                           encoding="utf-8") as f:
+                f.write(text)
+            try:
+                self.assertEqual(main(["--message", f.name]), expected)
+            finally:
+                os.unlink(f.name)
+
     def test_repository_files_pass(self):
         # Every file git would commit (tracked, or untracked and not ignored).
         result = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=REPO_ROOT, check=False,
