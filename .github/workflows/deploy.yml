@@ -37,6 +37,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+      - name: A release tag must be the latest commit on main
+        # Checked when the tag is pushed (not after approval), so a later merge
+        # of something unrelated can't block a good release.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          if [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then
+            echo "This tag is not the latest commit on main: tag the current main instead."; exit 1
+          fi
       - name: Install pinned dependencies (hashes checked)
         run: |
           python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements.txt
@@ -84,13 +93,6 @@ jobs:
         with:
           name: function
           path: dist
-      - name: A release tag must be the latest commit on main
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          git fetch --no-tags --depth=1 origin main
-          if [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then
-            echo "This tag is not the latest commit on main: tag the current main instead."; exit 1
-          fi
       - name: Check the package is the one that was built
         run: echo "${{ needs.build.outputs.sha256 }}  dist/function.zip" | sha256sum --check --strict
       - name: Parameters (refuses an empty or malformed allowlist)
