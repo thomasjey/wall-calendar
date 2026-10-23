@@ -49,6 +49,14 @@ class FrontendSource(unittest.TestCase):
                 self.assertIsNone(re.search(r"<script(?![^>]*\bsrc=)[^>]*>", text))
                 self.assertIsNone(re.search(r"<style\b|\sstyle=|\son[a-z]+=", text, re.IGNORECASE))
 
+    def test_app_fits_the_visible_viewport(self):
+        # 100vh on iPhone Safari is the height with its toolbar hidden, so the
+        # bottom row (legend and status) sat behind the toolbar.
+        css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+        app = css[css.index("#app {"):css.index("}", css.index("#app {"))]
+        self.assertIn("height: 100dvh;", app)
+        self.assertLess(app.index("height: 100vh;"), app.index("height: 100dvh;"))  # the fallback comes first
+
     def test_only_expected_file_types(self):
         allowed = {".html", ".css", ".js", ".woff2", ".txt", ".md", ".png", ".webmanifest"}
         for path in STATIC_DIR.rglob("*"):
