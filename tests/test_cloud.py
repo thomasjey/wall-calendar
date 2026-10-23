@@ -178,6 +178,94 @@ class AzureRestTest(unittest.TestCase):
         with self.assertRaises(self.az.AzureError):
             self.az.BlobContainer(http, "https://sttest.blob.core.windows.net/a/b", FakeIdentity())
 
+    def test_network_failures_are_azure_errors(self):
+        # The load test's 500s: a connect timeout escaped as a requests exception,
+        # past the events cache's "last good copy" (DESIGN §17.6).
+        import requests
+
+        from fwcal.cloud.storage import EventsCache
+
+        good = json.dumps(store.validate(payload())).encode()
+        state = {"fail": None}
+
+        def blob(m, u, kw):
+            if state["fail"]:
+                raise state["fail"]
+            return FakeResponse(200, raw=good, headers={"ETag": '"e1"'})
+
+        class BrokenBody(FakeResponse):
+            def iter_content(self, size):
+                raise requests.exceptions.ChunkedEncodingError("connection reset mid-body")
+
+        http = FakeHTTP([("GET", lambda u: "/data/" in u, blob),
+                         ("GET", lambda u: "vault" in u, lambda m, u, kw: BrokenBody(200))])
+        blobs = self.az.BlobContainer(http, CONTAINER, FakeIdentity())
+        cache = EventsCache(blobs)
+        body, etag = cache.get()
+        for exc in (requests.ConnectTimeout("connect timeout=5"), requests.ConnectionError("refused"),
+                    requests.ReadTimeout("read timeout=15")):
+            state["fail"] = exc
+            with self.subTest(exc=type(exc).__name__):
+                with self.assertRaises(self.az.AzureError) as cm:
+                    blobs.get("events.json")
+                self.assertIn(type(exc).__name__, str(cm.exception))
+                self.assertEqual(cache.get(), (body, etag))  # the page keeps its last good copy
+        with self.assertRaises(self.az.AzureError):
+            self.az.KeyVault(http, VAULT, FakeIdentity()).get("cfg")  # a body that breaks halfway
+
+    def test_connections_are_reused_after_unread_replies(self):
+        # The load test's connect timeouts: closing a streamed 304 or 404 before
+        # reading it closed the connection, so every request opened a new one.
+        import http.server
+        import threading
+
+        from fwcal.netauth import http_session
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                if self.path == "/same":
+                    self.send_response(304)
+                    self.end_headers()
+                    return
+                body = b"<Error><Code>BlobNotFound</Code></Error>"
+                self.send_response(404)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        connections = []
+
+        class Server(http.server.ThreadingHTTPServer):
+            def process_request(self, request, client_address):
+                connections.append(client_address)
+                super().process_request(request, client_address)
+
+            def handle_error(self, request, client_address):
+                pass  # the old way drops connections mid-conversation: expected here
+
+        server = Server(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            def run(finish):
+                connections.clear()
+                session = http_session()
+                for path in ("/same", "/missing") * 5:
+                    finish(self.az._send("test", session.get, base + path, timeout=5, stream=True))
+                session.close()
+                return len(connections)
+
+            self.assertGreater(run(lambda r: r.close()), 1)  # the old way: a connection per request
+            self.assertEqual(run(self.az._release), 1)
+        finally:
+            server.shutdown()
+            server.server_close()
+
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
 class OAuthTest(unittest.TestCase):

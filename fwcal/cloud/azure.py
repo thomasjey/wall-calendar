@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 TIMEOUT = (5, 15)
 MAX_BODY = 11 * 1024 * 1024  # events.json is capped at 10 MB (store.MAX_FILE_BYTES)
+DRAIN_LIMIT = 64 * 1024  # leftover bodies up to this size are read so the connection can be reused
 KEY_VAULT = "https://vault.azure.net"
 STORAGE = "https://storage.azure.com/"
 TOKEN_EXCHANGE = "api://AzureADTokenExchange"
@@ -44,12 +45,37 @@ def https_url(url: str, suffix: str) -> str:
 
 def _read(r, limit: int = MAX_BODY) -> bytes:
     chunks, size = [], 0
-    for chunk in r.iter_content(64 * 1024):
-        size += len(chunk)
-        if size > limit:
-            raise AzureError("response larger than the cap")
-        chunks.append(chunk)
+    try:
+        for chunk in r.iter_content(64 * 1024):
+            size += len(chunk)
+            if size > limit:
+                raise AzureError("response larger than the cap")
+            chunks.append(chunk)
+    except OSError as exc:  # requests' errors are OSErrors: the connection broke mid-body
+        raise AzureError(f"reading the response: {type(exc).__name__}") from exc
     return b"".join(chunks)
+
+
+def _send(what: str, call, *args, **kwargs):
+    """Sends a request. A network failure (refused, timed out, reset) becomes
+    AzureError, so callers degrade as designed instead of failing the page."""
+    try:
+        return call(*args, **kwargs)
+    except OSError as exc:  # requests' exceptions are OSErrors
+        raise AzureError(f"{what}: {type(exc).__name__}") from exc
+
+
+def _release(r) -> None:
+    """Closes a response so its connection goes back to the pool. Closing a
+    streamed response before its body is read closes the connection instead:
+    every request then paid for a new TCP and TLS handshake and an outbound
+    port, and under load the ports ran out (load test, DESIGN §17.6). So what's
+    left of a small body is read first; a large one, or a failure, just closes."""
+    try:
+        _read(r, DRAIN_LIMIT)
+    except AzureError:  # too large, already read, or the connection broke
+        pass
+    r.close()
 
 
 def _json(r, what: str) -> dict:
@@ -101,14 +127,14 @@ class ManagedIdentity:
         params = {"resource": resource, "api-version": "2019-08-01"}
         if self.client_id:
             params["client_id"] = self.client_id
-        r = self._session.get(f"{self._endpoint}?{urlencode(params)}", headers={"X-IDENTITY-HEADER": self._header},
-                              timeout=TIMEOUT, allow_redirects=False, stream=True)
+        r = _send("managed identity", self._session.get, f"{self._endpoint}?{urlencode(params)}",
+                  headers={"X-IDENTITY-HEADER": self._header}, timeout=TIMEOUT, allow_redirects=False, stream=True)
         try:
             if r.status_code != 200:
                 raise AzureError(f"managed identity: HTTP {r.status_code}", r.status_code)
             data = _json(r, "managed identity")
         finally:
-            r.close()
+            _release(r)
         token = data.get("access_token")
         try:
             expires = float(data.get("expires_on", 0))
@@ -138,15 +164,15 @@ class KeyVault:
         self._identity = identity
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
-        r = self._session.request(method, f"{self._url}/{path}?api-version={KV_API}", json=body, timeout=TIMEOUT,
-                                  allow_redirects=False, stream=True,
-                                  headers={"Authorization": f"Bearer {self._identity.token(KEY_VAULT)}"})
+        r = _send(f"Key Vault {method}", self._session.request, method, f"{self._url}/{path}?api-version={KV_API}",
+                  json=body, timeout=TIMEOUT, allow_redirects=False, stream=True,
+                  headers={"Authorization": f"Bearer {self._identity.token(KEY_VAULT)}"})
         try:
             if r.status_code >= 400:
                 raise AzureError(f"Key Vault {method}: HTTP {r.status_code}", r.status_code)
             return _json(r, "Key Vault")
         finally:
-            r.close()
+            _release(r)
 
     @staticmethod
     def _name(name: str) -> str:
@@ -196,8 +222,8 @@ class BlobContainer:
     def get(self, name: str, etag: str | None = None) -> tuple[bytes | None, str | None]:
         """(data, etag). (None, etag) if unchanged since `etag`; (None, None) if missing."""
         headers = self._headers({"If-None-Match": etag} if etag else None)
-        r = self._session.get(self._blob_url(name), headers=headers, timeout=TIMEOUT, allow_redirects=False,
-                              stream=True)
+        r = _send("blob get", self._session.get, self._blob_url(name), headers=headers, timeout=TIMEOUT,
+                  allow_redirects=False, stream=True)
         try:
             if r.status_code == 304:
                 return None, etag
@@ -207,12 +233,12 @@ class BlobContainer:
                 raise AzureError(f"blob get: HTTP {r.status_code}", r.status_code)
             return _read(r), r.headers.get("ETag")
         finally:
-            r.close()
+            _release(r)
 
     def put(self, name: str, data: bytes, content_type: str = "application/json") -> None:
         headers = self._headers({"x-ms-blob-type": "BlockBlob", "Content-Type": content_type})
-        r = self._session.put(self._blob_url(name), data=data, headers=headers, timeout=TIMEOUT,
-                              allow_redirects=False)
+        r = _send("blob put", self._session.put, self._blob_url(name), data=data, headers=headers,
+                  timeout=TIMEOUT, allow_redirects=False)
         try:
             if r.status_code != 201:
                 raise AzureError(f"blob put: HTTP {r.status_code}", r.status_code)
@@ -221,8 +247,8 @@ class BlobContainer:
 
     def delete(self, name: str) -> bool:
         """True if it existed and was deleted."""
-        r = self._session.delete(self._blob_url(name), headers=self._headers(), timeout=TIMEOUT,
-                                 allow_redirects=False)
+        r = _send("blob delete", self._session.delete, self._blob_url(name), headers=self._headers(),
+                  timeout=TIMEOUT, allow_redirects=False)
         try:
             if r.status_code == 404:
                 return False
