@@ -125,7 +125,7 @@ function Set-AppRegistration([string]$name, [string]$redirect, [string]$identity
 
 Write-Output 'App registrations...'
 $signin = Set-AppRegistration "wall-calendar-$Env-signin" "https://$hostName/.auth/login/aad/callback" $out.signinIdentityPrincipalId.value -IdTokens
-$sync = Set-AppRegistration "wall-calendar-$Env-sync" "https://$hostName/admin/consent/callback" $out.syncIdentityPrincipalId.value -CalendarsRead
+$sync = Set-AppRegistration "wall-calendar-$Env-sync" "https://$hostName/manage/consent/callback" $out.syncIdentityPrincipalId.value -CalendarsRead
 Write-Output '  both: personal accounts only, 0 secrets, 0 certificates, trust in one managed identity each'
 
 # --- 3. GitHub environment and secrets (secrets are masked in the public logs)
@@ -158,4 +158,4 @@ Write-Output ''
 Write-Output "Done. Next for $Env (deploy/AZURE.md):"
 Write-Output "  1. Write the cloud config:   .\tools\azure\put_config.ps1 -Env $Env -File <your config.toml>"
 Write-Output "  2. Deploy:                    run the 'deploy' workflow (dev: push to main; prod: a v* tag, then approve)"
-Write-Output "  3. Connect the calendar:      open https://$hostName/admin/consent and sign in as the viewer account"
+Write-Output "  3. Connect the calendar:      open https://$hostName/manage/consent and sign in as the viewer account"

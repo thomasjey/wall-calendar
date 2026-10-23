@@ -1,6 +1,6 @@
 """The admin-only consent page (DESIGN §15.6, ADR-27, T29).
 
-/admin/consent sends the admin's browser to Microsoft to sign in as the viewer
+/manage/consent sends the admin's browser to Microsoft to sign in as the viewer
 account. The callback accepts the result only with an unused `state` that was
 issued to the same admin less than 10 minutes ago, redeems the code with the
 sync identity's assertion and the PKCE verifier, and stores the refresh token
@@ -23,7 +23,9 @@ from .tokens import REFRESH_SECRET, store_refresh_token
 log = logging.getLogger("fwcal.cloud.consent")
 
 STATE_SECONDS = 600
-CALLBACK = "/admin/consent/callback"
+# Not under /admin/ or /runtime/: the Functions host keeps those for itself.
+START = "/manage/consent"
+CALLBACK = START + "/callback"
 
 
 class ConsentError(RuntimeError):

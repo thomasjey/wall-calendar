@@ -24,7 +24,7 @@ Signed in with `az login` (MFA) and `gh auth login`:
    `gh secret set ALLOWED_OBJECT_IDS --env dev` (comma-separated object IDs) and `gh secret set ALERT_EMAIL --env dev`.
 4. Write the cloud config (below): `.\tools\azure\put_config.ps1 -Env dev -File <path>`.
 5. Deploy: push to `main` (dev) or push a `v*` tag and approve (prod).
-6. Connect the calendar: open `https://<app>/admin/consent`, sign in as the viewer account, allow calendar access. The first sync follows within 5 minutes.
+6. Connect the calendar: open `https://<app>/manage/consent`, sign in as the viewer account, allow calendar access. The first sync follows within 5 minutes.
 
 Prod is the same with `-Env prod`.
 
@@ -53,7 +53,7 @@ detail = "full"                 # full | titles | busy
 
 [access]
 allowed = ["<object ID>", "..."]   # the code allowlist (layer 3)
-admins = ["<your object ID>"]      # may use /admin/consent
+admins = ["<your object ID>"]      # may use /manage/consent
 max_allowed = 5
 # enrolment_until = "YYYY-MM-DDTHH:MM:SSZ"   # see Enrolment
 ```
@@ -71,7 +71,7 @@ Both owners act on purpose (ADR-28); an empty list never opens anything.
 ## Operations
 
 - **Kill switch fired:** the budget reached $10 and both Function Apps were stopped. Find the cause (Cost analysis, request volume), then `az functionapp start -g rg-wallcal-<env> -n <app>`.
-- **Sync alert ("no successful sync for 30 minutes"):** `/api/health` shows the state. `reauth_required` means the consent was revoked or expired: run `/admin/consent` again.
+- **Sync alert ("no successful sync for 30 minutes"):** `/api/health` shows the state. `reauth_required` means the consent was revoked or expired: run `/manage/consent` again.
 - **Revoking a person:** remove their ID from `allowed` (takes effect within 5 minutes) and from `ALLOWED_OBJECT_IDS`, then redeploy.
 - **Revoking everything:** stop the Function Apps; remove the viewer's consent to the sync app at account.live.com/consent/Manage; delete the app registrations.
 - **Credentials:** there are no keys or client secrets to rotate. The refresh token rotates on every sync; each old version is disabled.

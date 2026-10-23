@@ -6,7 +6,7 @@ viewer account), a time zone, and an [access] table:
 
     [access]
     allowed = ["<object ID>", ...]   # the code allowlist (layer 3, DESIGN §15.4)
-    admins = ["<object ID>"]         # may use /admin/consent; must also be allowed
+    admins = ["<object ID>"]         # may use /manage/consent; must also be allowed
     max_allowed = 5                  # a malformed or oversized list is refused
     enrolment_until = "2026-10-23T02:00:00Z"   # optional (see enrolment_active)
 
