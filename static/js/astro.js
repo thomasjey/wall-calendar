@@ -15,9 +15,12 @@ function equatorial(lon, lat) {
   };
 }
 
+// Local sidereal time, as an angle.
+const sidereal = (d, lonDeg) => (280.16 + 360.9856235 * d) * RAD + lonDeg * RAD;
+
 function horizontal({ ra, dec }, d, latDeg, lonDeg) {
   const phi = latDeg * RAD;
-  const hourAngle = (280.16 + 360.9856235 * d) * RAD + lonDeg * RAD - ra;
+  const hourAngle = sidereal(d, lonDeg) - ra;
   const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(hourAngle));
   // From south, positive westwards, then turned to "from north, through east".
   const azSouth = Math.atan2(Math.sin(hourAngle), Math.cos(hourAngle) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
@@ -64,4 +67,20 @@ export function moonPhase(date) {
   const elongation = moonEcliptic(d).lon - sunEcliptic(d);
   const phase = ((elongation / (2 * Math.PI)) % 1 + 1) % 1;
   return { phase, lit: (1 - Math.cos(2 * Math.PI * phase)) / 2 };
+}
+
+// Which way the moon's lit side faces, as seen from the ground: degrees
+// anticlockwise from straight up (Meeus ch. 48: the bright limb's position
+// angle less the parallactic angle). 0 up, 90 left, -90 right.
+export function brightLimb(date, lat, lon) {
+  const d = daysSinceJ2000(date);
+  const sun = equatorial(sunEcliptic(d), 0);
+  const { lon: ml, lat: mb } = moonEcliptic(d);
+  const moon = equatorial(ml, mb);
+  const da = sun.ra - moon.ra;
+  const chi = Math.atan2(Math.cos(sun.dec) * Math.sin(da),
+    Math.sin(sun.dec) * Math.cos(moon.dec) - Math.cos(sun.dec) * Math.sin(moon.dec) * Math.cos(da));
+  const h = sidereal(d, lon) - moon.ra;
+  const q = Math.atan2(Math.sin(h), Math.tan(lat * RAD) * Math.cos(moon.dec) - Math.sin(moon.dec) * Math.cos(h));
+  return (((chi - q) / RAD + 540) % 360) - 180;
 }

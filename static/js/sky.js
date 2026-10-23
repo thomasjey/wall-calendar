@@ -1,10 +1,10 @@
 // The sky backdrop (DESIGN §10.1), shown where there are no photos: a gradient
 // that follows the day, stars at night, the sun and the moon (in its real
-// phase) where they really are, and hills along the bottom. Built once from
+// phase, lit side towards the sun) where they really are, and hills along the bottom. Built once from
 // SVG elements (no markup strings, so Trusted Types is untouched), then moved
 // and recoloured once a minute: cheap on the Pi.
 
-import { moonPhase, moonPosition, sunPosition } from './astro.js';
+import { brightLimb, moonPhase, moonPosition, sunPosition } from './astro.js';
 import { mixColor, skyColors } from './time.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -75,15 +75,11 @@ function place(node, pos, lat) {
   node.style.setProperty('--y', (clamp(pos.alt, -3, 90) / 90).toFixed(4));
 }
 
-// The lit part of the moon on a unit disc: a semicircle plus the terminator.
-function moonPath(phase, lit, southern) {
+// The lit part of the moon on a unit disc, lit side to the right: a semicircle
+// plus the terminator. paintSky turns it to face the sun.
+function moonPath(lit) {
   const rx = Math.abs(1 - 2 * lit).toFixed(3);
-  const sweep = lit > 0.5 ? 1 : 0;
-  const waxing = phase < 0.5;
-  const mirror = waxing === southern;  // waxing lights the right side, seen from the north
-  const side = mirror ? 0 : 1;
-  const back = mirror ? 1 - sweep : sweep;
-  return `M0,-1 A1,1 0 0 ${side} 0,1 A${rx},1 0 0 ${back} 0,-1 Z`;
+  return `M0,-1 A1,1 0 0 1 0,1 A${rx},1 0 0 ${lit > 0.5 ? 1 : 0} 0,-1 Z`;
 }
 
 // Fallback position when no location is configured: latitude 40, longitude
@@ -101,7 +97,7 @@ export function paintSky(now, location) {
   const [lat, lon] = location || fallbackLocation(now);
   const sun = sunPosition(now, lat, lon);
   const moon = moonPosition(now, lat, lon);
-  const { phase, lit } = moonPhase(now);
+  const { lit } = moonPhase(now);
 
   parts.stars.style.opacity = String(clamp((-sun.alt - 4) / 8, 0, 1) * 0.85);
   place(parts.sun, sun, lat);
@@ -110,7 +106,9 @@ export function paintSky(now, location) {
   place(parts.moon, moon, lat);
   const daylight = clamp((sun.alt + 6) / 12, 0, 1);  // the moon fades in daylight
   parts.moon.style.opacity = String(clamp((moon.alt + 2) / 4, 0, 1) * (1 - 0.6 * daylight) * (lit < 0.03 ? 0 : 1));
-  parts.lit.setAttribute('d', moonPath(phase, lit, lat < 0));
+  parts.lit.setAttribute('d', moonPath(lit));
+  // brightLimb is anticlockwise from up; the path's lit side starts at the right.
+  parts.lit.setAttribute('transform', `rotate(${(-90 - brightLimb(now, lat, lon)).toFixed(1)})`);
   // From the second frame on, later paints glide rather than jump.
   if (!parts.bg.classList.contains('settled')) {
     requestAnimationFrame(() => requestAnimationFrame(() => parts.bg.classList.add('settled')));
