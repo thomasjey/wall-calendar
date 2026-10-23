@@ -148,6 +148,8 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FWCAL_APP_IDENTITY_CLIENT_ID', value: appIdentity.properties.clientId }
         { name: 'FWCAL_SYNC_IDENTITY_CLIENT_ID', value: syncIdentity.properties.clientId }
         { name: 'FWCAL_SYNC_CLIENT_ID', value: syncClientId }
+        // The drift check reads this site's sign-in settings (Reader on the site, granted in foundation.bicep).
+        { name: 'FWCAL_SITE_ID', value: resourceId('Microsoft.Web/sites', functionAppName) }
         // Built-in sign-in proves it is the web app with the sign-in identity, not a secret (ADR-26).
         { name: signinSecretSetting, value: signinIdentity.properties.clientId }
         { name: 'WEBSITE_AUTH_AAD_ALLOWED_TENANTS', value: consumerTenant }
@@ -267,6 +269,34 @@ resource syncStale 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' =
           metricMeasureColumn: 'ok'
           operator: 'LessThan'
           threshold: 1
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    actions: { actionGroups: [actionGroup.id] }
+  }
+}
+
+@description('The hourly drift check (DESIGN §15.4): drift found, the check failing, or no successful check for 3 hours. One rule for all three, in prod only (about $0.50 a month); dev logs the same results.')
+resource driftAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = if (env == 'prod') {
+  name: 'alert-${functionAppName}-drift'
+  location: location
+  properties: {
+    enabled: true
+    severity: 1
+    scopes: [insights.id]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT3H'
+    criteria: {
+      allOf: [
+        {
+          // The platform's own records of each run, as for the sync alert. A run that finds drift
+          // raises, so it is recorded as Failed; no run at all leaves ok at 0.
+          query: 'traces | where message startswith "Executed \'Functions.drift\'" | summarize ok = countif(message startswith "Executed \'Functions.drift\' (Succeeded"), bad = countif(message startswith "Executed \'Functions.drift\' (Failed") | extend problem = iff(ok == 0 or bad > 0, 1, 0)'
+          timeAggregation: 'Total'
+          metricMeasureColumn: 'problem'
+          operator: 'GreaterThan'
+          threshold: 0
           failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
         }
       ]
