@@ -3,18 +3,31 @@
 import json
 import struct
 import unittest
+import zlib
 
 from fwcal.paths import STATIC_DIR
 from tools import make_icons
+
+
+def _pixels(png: bytes) -> bytes:
+    """The decompressed image data. The compressed bytes depend on the zlib
+    build (Python 3.14 on Windows ships zlib-ng), the pixels don't."""
+    data, pos = b"", 8
+    while pos < len(png):
+        length, kind = struct.unpack(">I4s", png[pos:pos + 8])
+        if kind == b"IDAT":
+            data += png[pos + 8:pos + 8 + length]
+        pos += 12 + length
+    return zlib.decompress(data)
 
 
 class Icons(unittest.TestCase):
     def test_committed_icons_match_the_generator(self):
         for name, size in make_icons.SIZES.items():
             with self.subTest(icon=name):
-                committed = (STATIC_DIR / "icons" / name).read_bytes()
-                self.assertEqual(committed, make_icons._png(size, make_icons._render(size)),
-                                 "run tools/make_icons.py and commit the result")
+                committed = _pixels((STATIC_DIR / "icons" / name).read_bytes())
+                expected = _pixels(make_icons._png(size, make_icons._render(size)))
+                self.assertEqual(committed, expected, "run tools/make_icons.py and commit the result")
 
     def test_icons_are_opaque_pngs_of_the_right_size(self):
         for name, size in make_icons.SIZES.items():
