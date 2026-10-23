@@ -1,6 +1,6 @@
 # wall-calendar — Design
 
-**Version:** 0.31 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 built and live (dev and prod; spikes R1–R4, R6, R7, R9, R10 passed, §15.13; load tests §17.6); next: failure tests (§17.6), R5 (devices), R8 (always-ready cost); Phase 4 (Raspberry Pi) when the hardware arrives.
+**Version:** 0.32 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 built and live (dev and prod; spikes R1–R4, R6, R7, R9, R10 passed, §15.13; load tests §17.6); next: failure tests (§17.6), R5 (devices), R8 (always-ready cost); Phase 4 (Raspberry Pi) when the hardware arrives.
 **Last updated:** 2026-10-23 (first draft 2026-10-04)
 **Conventions:** decisions are ADRs (§13), unknowns are spikes (§12.3), and nothing personal goes in this repository.
 
@@ -514,8 +514,8 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 - **Two lists, two owners; a person must be on both.** The platform list (layer 2) is set only by the prod deploy (Bicep, after my approval in GitHub); its IDs live as variables on GitHub's protected prod environment, not in the repository. The code list (layer 3) is a Key Vault secret written **only by me**, with a small script and MFA; the deploy identity (Contributor on the resource group) has no data access to Key Vault, and the Function App's own identity can only *read* that one secret. Tampering through one path can't let anyone in.
 - **Fail closed:** the Bicep refuses an empty list, a malformed ID or more entries than the configured maximum. Our code re-reads the secret every 5 minutes and **denies everyone** if it is empty or malformed; if it becomes unreadable, the last good copy is used for at most 30 minutes, then everyone is denied.
 - **Every change is seen:** a free Activity Log alert emails me on any write to the Function App's sign-in or app settings; Key Vault's access log alerts on any write to the secret (and on reads by any identity but the Function App's). Key Vault keeps every version, so a bad change can be rolled back.
-- **Drift check (planned):** a scheduled job compares the two lists, repeats the unlisted-account 403 check and alerts on any difference.
-- **Code that skips the check:** branch protection (pull requests I review), tests that fail if the check is weakened or removed, and the drift check's 403 test.
+- **Drift check (built 2026-10-23):** every hour a timer function compares the two lists and checks that the platform's sign-in settings still keep everyone else out: sign-in required, no anonymous access, Microsoft sign-in with the personal-account issuer, only the personal-account tenant, token store off, a non-empty allowlist (`fwcal/cloud/drift.py`). It reads the platform side through Resource Manager with the app identity, which has Reader on its own site only, and the code side straight from Key Vault, not through the page's cache. Findings name counts and 8-character hashes, never IDs. One alert, in prod: drift found, the check failing, or no successful check for 3 hours. *It doesn't re-run the unlisted-account 403 test as first planned: that needs a real account's password stored. Reading the settings that produce the 403 catches the same failures (sign-in off, the list emptied or changed) with no stored credential.*
+- **Code that skips the check:** branch protection (pull requests I review), tests that fail if the check is weakened or removed, the manual 403 check after deploys, and the drift check's reading of the platform settings.
 - **Not covered:** a fully compromised administrator (my Azure or GitHub account) could change both lists or anything else. Defences: MFA, the change alerts, Microsoft's account alerts. The blast radius is limited: Azure holds no irreplaceable data (everything rebuilds from Bicep plus one consent), the wall at home doesn't depend on Azure, and revoking the cloud sync's consent cuts off calendar access (§15.8).
 
 ### 15.5 Sessions and devices
@@ -676,7 +676,7 @@ What exists, who controls it, and how to hand it to someone else (for example if
 | Environment | Where | Purpose | Always-ready | Cost |
 |---|---|---|---|---|
 | **dev** | resource group `rg-wallcal-dev` in the `wall-calendar` subscription | every merge to `main` deploys here automatically | no (scale to zero) | ~$0 |
-| **prod** | resource group `rg-wallcal-prod` | deploys only from a tagged release, after a manual approval in GitHub | **yes, 1 instance** | ~$6.80 |
+| **prod** | resource group `rg-wallcal-prod` | deploys only from a tagged release, after a manual approval in GitHub | **yes, 1 instance** | ~$7.30 |
 
 Each environment has its **own** Function App, storage, Key Vault, managed identity, app registrations (web sign-in and cloud sync) and allowlist. Dev's allowlist holds only my account; dev syncs a test calendar, not real ones (§17.6).
 
@@ -723,14 +723,14 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 
   **Findings.** One 512 MB instance (a quarter core) serves about 40 requests/s; beyond that, latency is queueing for CPU (server p50 about 100 ms at 4 connections, 200 ms at 8–16). Scale-out came after about three minutes of sustained load, then 14 instances (above the cap of 4; §17.3). The warm p95 target (300 ms server side) holds up to about 8 parallel requests per instance. Real use is a few people polling once a minute, well under 1 request/s: hundreds of times below one instance's capacity, so per-instance concurrency stays at 8 and the instance size at 512 MB.
 - **Failure tests:** Graph unavailable or throttling; token expired or revoked; Key Vault unreachable; storage unreachable; a request flood. Each must degrade as designed (stale data with a status, a clear error, no secrets in errors).
-- **Post-deploy checks:** anonymous requests get 302/401 and TLS 1.2 is refused (both in `deploy.yml`); an unlisted account gets 403 (manual: it needs a signed-in browser). A security-header check needs a signed-in request (anonymous ones get the platform's 401), so it is planned with the drift check.
+- **Post-deploy checks:** anonymous requests get 302/401 and TLS 1.2 is refused (both in `deploy.yml`); an unlisted account gets 403 (manual: it needs a signed-in browser). A security-header check needs a signed-in request (anonymous ones get the platform's 401), so it is planned.
 - **Dev data:** a separate test calendar with synthetic events, shared to a separate dev viewer account, so dev never holds real data.
 
 ### 17.7 Observability
 - **Application Insights** (workspace-based), through the Functions host's built-in integration; sampling on (requests and exceptions excluded); daily data cap set so logging can't exceed the budget.
 - **Privacy-safe telemetry:** request paths, status codes, durations, dependency calls, sync counts; **never** event content, names or account IDs in logs (a hashed principal for correlation at most).
 - **Dashboards (planned):** availability, p95 latency, error rate, sync freshness, instance count, cost.
-- **Alerts** (email): no successful sync for 30 minutes; more than 5 failed requests in 15 minutes; Key Vault access by an unexpected identity; any change to the Function App's settings, including the allowlist (Activity Log); request volume far above normal (the flood brake, §17.8); budget thresholds. *Planned: p95 latency above target for 15 minutes.*
+- **Alerts** (email): no successful sync for 30 minutes; more than 5 failed requests in 15 minutes; Key Vault access by an unexpected identity; any change to the Function App's settings, including the allowlist (Activity Log); the drift check (prod: drift found, the check failing, or no successful check for 3 hours, §15.4); request volume far above normal (the flood brake, §17.8); budget thresholds. *Planned: p95 latency above target for 15 minutes.*
 
 ### 17.8 Cost controls
 - **Budget $10/month** on the `wall-calendar` subscription (both environments); email alerts at 50%, 80% and 100% of actual and 100% of forecast.
@@ -741,11 +741,11 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 | Item | Monthly |
 |---|---|
 | Always-ready instance (prod, 512 MB, Flex baseline rate about $0.000004/GB-s; to confirm, R8) | ~$5.20 |
-| Alert rules (2 observed, plus 3 flood rules at $0.10) | ~$1.30 |
+| Alert rules (3 log rules including the drift check, about $0.50 each; 3 flood rules at $0.10) | ~$1.80 |
 | Key Vault, storage, Application Insights (under free allowances) | ~$0.30 |
 | On-demand executions (within the free grant) | $0 |
 | Dev environment (scale to zero) | ~$0 |
-| **Total** | **~$6.80**, budget and kill switch at $10 |
+| **Total** | **~$7.30**, budget and kill switch at $10 |
 
 ### 17.9 Service level objectives
 | SLO | Target |
@@ -754,7 +754,7 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 | Latency, warm (p95, server side) | under 300 ms |
 | First load after idle | under 2 s (always-ready instance) |
 | Data freshness | events no older than 10 minutes, 99% of the time |
-| Security | zero requests served to principals outside the allowlist (verified after deploys; periodically once the drift check is built) |
+| Security | zero requests served to principals outside the allowlist (verified after deploys, and hourly by the drift check, §15.4) |
 
 The wall at home keeps its own objectives: it works without the internet, from cached data.
 
@@ -781,7 +781,7 @@ Runbooks in the repository (`deploy/AZURE.md`, Operations): sync failing, creden
 | ADR-31 | **Cloud config in Key Vault, written only by me:** calendars (Graph IDs, names, colours, detail levels), display settings, the code allowlist and the admin ID, as one TOML secret. Changing a detail level is as sensitive as changing the allowlist, so it gets the same protection (ADR-28). Nothing personal is in the repository |
 | ADR-32 | **Two layers of infrastructure:** *foundation* (identities, Key Vault, storage, role assignments), deployed rarely by me; *app* (Function App, its settings, sign-in settings with the platform allowlist, code), deployed by the pipeline with Contributor on the resource group. The app registrations and their federated credentials are made by a one-time bootstrap script I run; the pipeline has no directory permissions |
 | ADR-33 | **Dev uses its own viewer account** with a test calendar of synthetic events (§17.6); until it exists, dev runs with no calendar (the sync skips, deliberately). *Amended 2026-10-22: the dev viewer account is deferred, so **R10 runs in prod** with the real viewer account. Its refusal tests (another account at the consent prompt, a non-admin, a reused or forged `state`) store nothing; if the managed-identity refresh fails there, the fallback is ADR-18* |
-| ADR-34 | **Built as (2026-10-22):** four user-assigned identities per environment (app: storage and reading the config; sign-in; sync; deploy), all created with their role assignments in the foundation. Role assignments on the two Key Vault secrets are per secret. **Enrolment** needs both the deploy switch `ENROLMENT_OPEN` (lifts the platform allowlist) and `enrolment_until` in the config (at most 30 minutes ahead); a newcomer sees only their own ID. **Workflow logs are public**, so every environment value (allowed IDs, client IDs, subscription, alert email) is a GitHub environment *secret*, masked in logs; parameters go to a file, never to the output. The cloud config also holds the **time zone** for the sync's day boundaries (Azure runs on UTC). The page and `/api/*` share one catch-all function; other sites may only *navigate* to pages (Fetch Metadata), never call `/api/*` |
+| ADR-34 | **Built as (2026-10-22):** four user-assigned identities per environment (app: storage, reading the config, and Reader on its own site for the drift check; sign-in; sync; deploy), all created with their role assignments in the foundation. Role assignments on the two Key Vault secrets are per secret. **Enrolment** needs both the deploy switch `ENROLMENT_OPEN` (lifts the platform allowlist) and `enrolment_until` in the config (at most 30 minutes ahead); a newcomer sees only their own ID. **Workflow logs are public**, so every environment value (allowed IDs, client IDs, subscription, alert email) is a GitHub environment *secret*, masked in logs; parameters go to a file, never to the output. The cloud config also holds the **time zone** for the sync's day boundaries (Azure runs on UTC). The page and `/api/*` share one catch-all function; other sites may only *navigate* to pages (Fetch Metadata), never call `/api/*` |
 
 *Note on the two identities (ADR-26, ADR-27):* both are assigned to the same Function App, so any of its code can use either. Keeping them apart limits **which app registration trusts which identity**; it is not isolation between pieces of code.
 
@@ -789,6 +789,7 @@ Runbooks in the repository (`deploy/AZURE.md`, Operations): sync failing, creden
 
 | Version | Date | Change |
 |---|---|---|
+| 0.32 | 2026-10-23 | Drift check built (§15.4): hourly comparison of the two allowlists plus the platform's sign-in settings, Reader on its own site, one prod alert; it reads the settings instead of re-running the 403 test with a stored password |
 | 0.31 | 2026-10-23 | Review against the code: §9 (Pi services, kiosk, image), §8.1 routes and CSP, the status of §15 and §17, planned items marked as planned (drift check, sign-out link, dashboards, latency alert, Bicep lint, what-if before approval, runbooks); real-setup details replaced by generic wording; sky scene, app icons and the moon's tilt (§15.5); the flood brake, and the ops deployment found never run (§17.8) |
 | 0.30 | 2026-10-23 | Load tests in dev: results, the fixes they led to, and the instance cap not holding (§17.3, §17.6) |
 | 0.29 | 2026-10-22 | ADR-25 amended (plain functions on the runtime's thread pool); non-blocking I/O recorded as a planned improvement (§14) |
