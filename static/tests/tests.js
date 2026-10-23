@@ -3,6 +3,7 @@
 
 import * as t from '../js/time.js';
 import * as astro from '../js/astro.js';
+import { ridges } from '../js/sky.js';
 import { el, setCalColor, setPhoto, showFullTextOnHover } from '../js/dom.js';
 import { DEFAULTS, parseSettings } from '../js/settings.js';
 
@@ -271,6 +272,24 @@ test("the moon's lit side faces the sun, both hemispheres", () => {
     if (Math.sign(limb) !== side || Math.abs(limb - towardsSun(t, lat, lon)) > 10) {
       throw new Error(`${iso}: ${limb} vs ${towardsSun(t, lat, lon)}`);
     }
+  }
+});
+
+test('mountain ridges: inside their band, nearer below farther, the same every time', () => {
+  const gen = (seed) => () => (seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296;
+  const a = ridges(gen(7));
+  eq(a, ridges(gen(7)));  // a fixed seed draws the same mountains on every visit
+  if (a.length !== 3 || a.some((ys) => ys.length !== 101)) throw new Error('three ranges, x = 0..100');
+  for (const ys of a) {
+    if (ys.some((y) => !(y >= 1 && y <= 29))) throw new Error(`outside the band: ${Math.min(...ys)}..${Math.max(...ys)}`);
+  }
+  for (let i = 1; i < a.length; i++) {
+    if (a[i].some((y, x) => y < a[i - 1][x] + 1 - 1e-9)) throw new Error(`range ${i} rises above the one behind it`);
+  }
+  // Irregular, not a smooth curve: neighbouring slopes differ along every range.
+  for (const ys of a) {
+    const slopes = ys.slice(1).map((y, x) => y - ys[x]);
+    if (new Set(slopes.map((d) => d.toFixed(2))).size < 10) throw new Error('ridge too regular');
   }
 });
 

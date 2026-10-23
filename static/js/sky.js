@@ -40,6 +40,44 @@ function glow(id, from) {
     svg('stop', { offset: 1, class: 'halo', 'stop-opacity': 0 })));
 }
 
+// The three ranges of hills (far to near), on the hills' 100 x 30 drawing,
+// as y values at x = 0..100. The recipe of the sample photos (samplephotos.py):
+// a broad swell per range, more swells for nearer ones, plus small irregular
+// facets joined by straight lines; each nearer range stays below the one behind.
+const RANGES = [  // base height, swell height, swell length (radians across the width)
+  [11, 5, 3.2],
+  [16.5, 3.5, 5.5],
+  [22, 2.5, 8],
+];
+const FACETS = 18;
+
+export function ridges(rand) {
+  const step = 100 / FACETS;
+  let behind = null;
+  return RANGES.map(([base, swell, span]) => {
+    const phase = rand() * 2 * Math.PI;
+    const jag = Array.from({ length: FACETS + 2 }, () => rand() * 2 - 1);
+    const ys = [];
+    for (let x = 0; x <= 100; x++) {
+      const k = Math.floor(x / step);
+      const facet = jag[k] + (jag[k + 1] - jag[k]) * ((x % step) / step);
+      let y = base + swell * Math.sin((x / 100) * span + phase) + 1.6 * facet;
+      if (behind) y = Math.max(y, behind[x] + 1);
+      ys.push(Math.min(29, Math.max(1, y)));
+    }
+    behind = ys;
+    return ys;
+  });
+}
+
+// The mountains as first drawn and chosen (2026-10-23): this generator and seed.
+function ridgeRandom(seed) {
+  let s = seed >>> 0;
+  return () => (s = (s * 1103515245 + 12345) >>> 0) / 4294967296;
+}
+
+const ridgePath = (ys) => `M${ys.map((y, x) => `${x},${y.toFixed(2)}`).join(' L')} L100,30 L0,30 Z`;
+
 let parts = null;
 
 export function initSky() {
@@ -58,9 +96,7 @@ export function initSky() {
     glow('moon-glow', 0.62), svg('circle', { r: 1.6, class: 'glow', fill: 'url(#moon-glow)' }),
     svg('circle', { r: 1, class: 'dark' }), lit);
   const hills = svg('svg', { class: 'hills', viewBox: '0 0 100 30', preserveAspectRatio: 'none' },
-    svg('path', { class: 'hill h0', d: 'M0,14 C14,6 26,9 38,12 C52,16 64,4 80,8 C90,10 96,9 100,11 L100,30 L0,30 Z' }),
-    svg('path', { class: 'hill h1', d: 'M0,19 C12,13 24,15 34,18 C48,22 58,12 72,15 C84,18 92,14 100,17 L100,30 L0,30 Z' }),
-    svg('path', { class: 'hill h2', d: 'M0,24 C10,21 22,22 32,24 C46,27 56,20 70,22 C82,24 92,21 100,23 L100,30 L0,30 Z' }));
+    ...ridges(ridgeRandom(20261023)).map((ys, i) => svg('path', { class: `hill h${i}`, d: ridgePath(ys) })));
   bg.append(stars, sun, moon, hills);  // back to front
   parts = { bg, stars, sun, moon, lit, hills };
 }
