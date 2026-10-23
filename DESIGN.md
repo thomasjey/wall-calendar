@@ -450,6 +450,7 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
    - **One sync implementation for both the Pi and the cloud:** an async core with a thin blocking wrapper for the Pi, rather than two copies.
    - **Log lines must keep their invocation:** with `async` functions, the Python 3.13 runtime (1.3.0) doesn't mark the invocation for the logging path; that's why ADR-25 moved to plain functions. Re-check on a newer runtime before switching; until then this waits.
    - **Measured, not assumed:** the load tests (§17.6) compare both under the same concurrency before and after.
+5. **Sky from the device's own location (possible later feature, 2026-10-22).** Today the sky uses the configured, rounded home location, so while travelling it follows home's sunrise. If wanted: an **opt-in** switch ("use this device's location for the sky"), off by default, using the browser's Geolocation API with its permission prompt. The position would be used only in the browser, never sent to the server, and rounded like the configured one. It needs `Permissions-Policy` to allow `geolocation=(self)` (today it forbids it). The wall at home keeps the configured location: the Pi has no GPS, and network location would send Wi-Fi details to a third party.
 
 ## 15. Viewing away from home through Azure (Phase 5)
 
