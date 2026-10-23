@@ -258,7 +258,8 @@ resource syncStale 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' =
     criteria: {
       allOf: [
         {
-          query: 'traces | where message in ("sync finished with code 0", "sync skipped: no calendars configured") | summarize ok = count()'
+          // The platform's own record of each run: it arrives even when Python log lines don't.
+          query: 'traces | where message startswith "Executed \'Functions.sync\' (Succeeded" | summarize ok = count()'
           timeAggregation: 'Total'
           metricMeasureColumn: 'ok'
           operator: 'LessThan'
