@@ -6,6 +6,7 @@ responses are size-capped, and secret values are never logged.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import threading
@@ -61,6 +62,19 @@ def _json(r, what: str) -> dict:
     return data
 
 
+def _platform_local(host: str | None) -> bool:
+    """Loopback or link-local (169.254.0.0/16, fe80::/10): addresses the
+    platform uses for its own endpoints and that are never routed to the
+    internet. Flex Consumption serves identity tokens on a link-local address."""
+    if host == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(host or "")
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_link_local
+
+
 class ManagedIdentity:
     """Tokens from the Functions host's identity endpoint for the user-assigned
     identity `client_id` (None would be a system-assigned identity, unused here)."""
@@ -68,8 +82,9 @@ class ManagedIdentity:
     def __init__(self, session, endpoint: str, header: str, client_id: str | None = None,
                  clock=time.time) -> None:
         parts = urlsplit(endpoint)
-        if parts.scheme not in ("http", "https") or parts.hostname not in ("localhost", "127.0.0.1"):
-            raise AzureError("the identity endpoint must be local")
+        if parts.scheme not in ("http", "https") or not _platform_local(parts.hostname):
+            # The identity header must never go to a routable host; the host itself is not secret.
+            raise AzureError(f"the identity endpoint must be loopback or link-local, not {parts.hostname!r}")
         if client_id is not None and not _GUID_RE.match(client_id):
             raise AzureError("identity client ID must be a GUID")
         self._session, self._endpoint, self._header = session, endpoint, header
