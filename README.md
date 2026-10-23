@@ -6,9 +6,9 @@ Developed and tested on a PC first.
 Independent of my other projects by design: this display reads calendars with its own read-only access and never
 holds or shares another project's credentials.
 
-Design: [`DESIGN.md`](DESIGN.md) is the source of truth (v0.26, signed off 2026-10-21).
+Design: [`DESIGN.md`](DESIGN.md) is the source of truth (v0.27, signed off 2026-10-21).
 
-**Status:** Phases 1 and 3 done on the laptop. Phase 5 (viewing from anywhere through Azure, built to the production profile in DESIGN §17): experiments R1–R4, R6, R7 passed; cloud code, infrastructure as code and CI/CD built, first deployment next ([`deploy/AZURE.md`](deploy/AZURE.md)). Phase 4 (Raspberry Pi) when the hardware arrives.
+**Status:** Phases 1 and 3 done on the laptop. Phase 5 (viewing from anywhere through Azure, built to the production profile in DESIGN §17): experiments R1–R4, R6, R7, R9 passed; cloud code, infrastructure as code and CI/CD built; dev deployed and verified ([`deploy/AZURE.md`](deploy/AZURE.md)). Phase 4 (Raspberry Pi) when the hardware arrives.
 
 ## Run it with mock data (no credentials, no network)
 
