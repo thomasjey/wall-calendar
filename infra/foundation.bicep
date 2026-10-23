@@ -17,8 +17,8 @@ param location string = resourceGroup().location
 @description('Object ID of the administrator in the directory: the only identity that can write the cloud config.')
 param adminPrincipalId string
 
-@description('owner/name of the GitHub repository whose deploy workflow may deploy this environment.')
-param githubRepo string = 'thomasjey/wall-calendar'
+@description('The repository as GitHub names it in its OIDC subject: owner@ownerId/name@repoId. The numeric IDs never change, so a renamed or re-created repository with the same name gets no trust (tools/azure/bootstrap.ps1 looks them up).')
+param githubOidcRepo string
 
 param seedSecrets bool = false
 
@@ -64,7 +64,7 @@ resource githubTrust 'Microsoft.ManagedIdentity/userAssignedIdentities/federated
   name: 'github-${env}'
   properties: {
     issuer: 'https://token.actions.githubusercontent.com'
-    subject: 'repo:${githubRepo}:environment:${env}'
+    subject: 'repo:${githubOidcRepo}:environment:${env}'
     audiences: ['api://AzureADTokenExchange']
   }
 }
