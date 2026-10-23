@@ -56,9 +56,30 @@ def atomic_write(path: Path, data: bytes, mode: int) -> None:
             os.close(dfd)
 
 
+def dumps(payload: dict) -> bytes:
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+
+
 def write_events(path: Path, payload: dict) -> None:
-    data = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("ascii")
-    atomic_write(path, data, 0o640)
+    atomic_write(path, dumps(payload), 0o640)
+
+
+class FileEventStore:
+    """Where the sync keeps events.json on the Pi and laptop. The cloud uses a
+    blob with the same load/save shape (fwcal.cloud.storage)."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def load(self) -> dict | None:
+        """The last good payload, or None if missing or invalid."""
+        try:
+            return load_events(self.path)
+        except (OSError, InvalidEventsFile):
+            return None
+
+    def save(self, payload: dict) -> None:
+        write_events(self.path, payload)
 
 
 def _s(obj: dict, key: str, limit: int) -> str:
@@ -154,6 +175,11 @@ def load_events(path: Path) -> dict:
     """Validated payload. Raises InvalidEventsFile or OSError."""
     with path.open("rb") as f:
         raw = f.read(MAX_FILE_BYTES + 1)
+    return loads(raw)
+
+
+def loads(raw: bytes) -> dict:
+    """Validated payload from bytes. Raises InvalidEventsFile."""
     if len(raw) > MAX_FILE_BYTES:
         raise InvalidEventsFile("too large")
     try:

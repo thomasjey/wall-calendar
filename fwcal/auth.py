@@ -8,53 +8,26 @@ checked; a failed check leaves the existing cache untouched.
 from __future__ import annotations
 
 import logging
-import ssl
 from urllib.parse import parse_qs, urlsplit
 
 import msal
 import requests
-from requests.adapters import HTTPAdapter
 
 from . import tokencache
 from .config import Config
+from .netauth import ALLOWED_GRANTED, AuthError, ReauthRequired, check_granted, http_session  # noqa: F401
+from .netauth import granted_scopes as _scopes
 
 log = logging.getLogger("fwcal.auth")
 logging.getLogger("msal").setLevel(logging.WARNING)
 
 AUTHORITY = "https://login.microsoftonline.com/consumers"
 SCOPES = ["Calendars.Read"]
-# Microsoft omits offline_access from the granted list for personal accounts.
-ALLOWED_GRANTED = frozenset({"Calendars.Read", "openid", "profile", "offline_access"})
 REDIRECT_URI = "http://localhost"
 
 
-class AuthError(RuntimeError):
-    pass
-
-
-class ReauthRequired(AuthError):
-    """No usable sign-in: run `fwcal auth login`."""
-
-
-class TLS12Adapter(HTTPAdapter):
-    """Refuses anything older than TLS 1.2 (DESIGN §5.3)."""
-
-    def init_poolmanager(self, *args, **kwargs):
-        ctx = ssl.create_default_context()
-        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        kwargs["ssl_context"] = ctx
-        return super().init_poolmanager(*args, **kwargs)
-
-
-def http_session() -> requests.Session:
-    s = requests.Session()
-    s.mount("https://", TLS12Adapter())
-    s.trust_env = False  # no proxies or netrc credentials from the environment
-    return s
-
-
 def granted_scopes(result: dict) -> set[str]:
-    return {s.rsplit("/", 1)[-1] for s in str(result.get("scope", "")).split()}
+    return _scopes(result.get("scope"))
 
 
 def verify(result: dict, expected_account: str) -> str:
@@ -66,11 +39,7 @@ def verify(result: dict, expected_account: str) -> str:
     account = str(claims.get("preferred_username", "")).lower()
     if not account or account != expected_account.lower():
         raise AuthError("signed in as an unexpected account; nothing was saved")
-    granted = granted_scopes(result)
-    if not granted <= ALLOWED_GRANTED:
-        raise AuthError(f"unexpected extra permissions {sorted(granted - ALLOWED_GRANTED)}; nothing was saved")
-    if "Calendars.Read" not in granted:
-        raise AuthError("Calendars.Read was not granted; nothing was saved")
+    check_granted(result.get("scope"))
     return account
 
 
