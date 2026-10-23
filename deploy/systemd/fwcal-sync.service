@@ -1,0 +1,48 @@
+# The sync job: the only process that holds the token (DESIGN §5, ADR-3).
+# `fwcal sync` arrives in Phase 3; this unit is ready for it.
+[Unit]
+Description=wall-calendar calendar sync
+Wants=network-online.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+User=fwcal-sync
+Group=fwcal-sync
+SupplementaryGroups=fwcal
+WorkingDirectory=/opt/fwcal
+ExecStart=/opt/fwcal/.venv/bin/python -m fwcal sync
+TimeoutStartSec=120
+UMask=0027
+
+# UMask 0027: events.json must stay group-readable for fwcal-web; the token
+# file is created with an explicit 0600. Writes only these two directories.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/fwcal/auth /var/lib/fwcal/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# Outbound HTTPS to Microsoft only by design; it opens no listening socket.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# MemoryDenyWriteExecute is left off until S3 confirms the cryptography
+# library works with it on the Pi (DESIGN §9.1).
+MemoryMax=256M
+TasksMax=32

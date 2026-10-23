@@ -1,0 +1,4 @@
+# Runtime dependencies (DESIGN 12.1). Keep this list minimal.
+# Regenerate requirements.txt with:
+#   pip-compile --generate-hashes --allow-unsafe -o requirements.txt requirements.in
+msal

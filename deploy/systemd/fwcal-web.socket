@@ -1,0 +1,13 @@
+# systemd holds 127.0.0.1:8765 at all times, so no other process can take the
+# port while fwcal-web restarts (DESIGN §9.1, §12.6). Keep the port in sync
+# with `port` in /etc/fwcal/config.toml.
+[Unit]
+Description=wall-calendar web socket (127.0.0.1 only)
+
+[Socket]
+ListenStream=127.0.0.1:8765
+Backlog=16
+NoDelay=yes
+
+[Install]
+WantedBy=sockets.target

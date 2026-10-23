@@ -1,0 +1,40 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fwcal-mock",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "fwcal", "dev", "--mock", "--port", "8765"],
+      "port": 8765,
+      "url": "http://127.0.0.1:8765"
+    },
+    {
+      "name": "fwcal-mock-alt",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "fwcal", "dev", "--mock", "--port", "8766"],
+      "port": 8766,
+      "url": "http://127.0.0.1:8766"
+    },
+    {
+      "name": "fwcal-mock-event-end",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "fwcal", "dev", "--mock", "--port", "8767", "--now", "2026-10-21T16:29:50"],
+      "port": 8767,
+      "url": "http://127.0.0.1:8767"
+    },
+    {
+      "name": "fwcal-mock-dst-end",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "fwcal", "dev", "--mock", "--port", "8769", "--now", "2026-11-01T01:59:50"],
+      "port": 8769,
+      "url": "http://127.0.0.1:8769"
+    },
+    {
+      "name": "fwcal-mock-midnight",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "fwcal", "dev", "--mock", "--port", "8768", "--now", "2026-10-21T23:59:50"],
+      "port": 8768,
+      "url": "http://127.0.0.1:8768"
+    }
+  ]
+}

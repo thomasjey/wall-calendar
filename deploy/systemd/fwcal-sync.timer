@@ -1,0 +1,11 @@
+[Unit]
+Description=wall-calendar calendar sync every 5 minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

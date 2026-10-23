@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+# Node
+node_modules/
+dist/
+
+# Local config and secrets: never committed (DESIGN §7)
+.env
+.env.*
+*.local.json
+secrets/
+*.toml
+!pyproject.toml
+!config.example.toml
+*cache*.json
+events*.json
+*.pem
+*.key
+*.pfx
+
+# Personal and third-party material: never committed
+photos/
+reference/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Spike code stays out of git (DESIGN 12.3)
+spikes/

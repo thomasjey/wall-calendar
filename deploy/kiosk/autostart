@@ -1,0 +1,13 @@
+# labwc autostart for the kiosk user (~/.config/labwc/autostart). DESIGN §9.2.
+# Rotation for a landscape monitor turned on its side: replace HDMI-A-1 with the
+# output name from `wlr-randr`. Delete this line for a natively portrait panel
+# (1080x1920), which needs no rotation or touch remapping.
+wlr-randr --output HDMI-A-1 --transform 90 &
+
+# Never add --remote-debugging-port: it would open a control port into the browser.
+chromium --kiosk --app=http://127.0.0.1:8765/ \
+  --ozone-platform=wayland \
+  --noerrdialogs --disable-session-crashed-bubble --no-first-run \
+  --disable-pinch --overscroll-history-navigation=0 \
+  --disable-features=Translate,TouchpadOverscrollHistoryNavigation \
+  --password-store=basic &

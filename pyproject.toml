@@ -1,0 +1,15 @@
+[project]
+name = "wall-calendar"
+version = "0.1.0"
+description = "A read-only wall calendar for a Raspberry Pi kiosk (see DESIGN.md)."
+readme = "README.md"
+# Raspberry Pi OS (Trixie) ships 3.13; the development laptop runs 3.14.
+requires-python = ">=3.13"
+# The web server and mock mode use the standard library only. The sync job's
+# dependencies (msal) are pinned with hashes in requirements.txt (DESIGN §12.1);
+# install with: pip install --require-hashes --only-binary :all: --no-deps -r requirements.txt
+dependencies = []
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"

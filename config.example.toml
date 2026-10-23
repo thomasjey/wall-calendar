@@ -1,0 +1,39 @@
+# wall-calendar configuration (DESIGN §7). Copy to:
+#   Raspberry Pi:  /etc/fwcal/config.toml   (mode 0640, root:fwcal)
+#   Windows dev:   %APPDATA%\fwcal\config.toml
+# This file holds no secrets, but the real one holds personal details; never commit it.
+
+# The Entra app registration made for this project only (public client, Calendars.Read.Shared).
+client_id = "00000000-0000-0000-0000-000000000000"
+# The dedicated viewer account. Sign-in is refused for any other account.
+expected_account = "viewer@example.com"
+
+lookahead_days = 35        # 7..120
+port = 8765                # always bound to 127.0.0.1
+# photo_dir = "/var/lib/fwcal/photos"   # .jpg .jpeg .png .webp only
+
+[display]
+clock = "12h"              # "12h" or "24h"
+week_start = "sunday"      # "sunday" or "monday"
+show_notes = true          # false: notes are dropped by the sync job, never stored
+idle_seconds = 120         # return to Today after this long without a touch
+photo_interval_seconds = 600
+night_dim = ["22:00", "06:30"]   # [] to disable
+
+# One table per calendar. Get graph_id values from `fwcal calendars` (Phase 3).
+# detail: "full" (title, time, location, notes), "titles" (title and time only)
+# or "busy" (time only). Hidden fields are dropped by the sync job, never stored.
+# Match it with the Outlook sharing level, so Microsoft doesn't send them either.
+[[calendars]]
+key = "home"               # [a-z0-9_-], shown nowhere
+name = "Home"              # shown in the legend and details
+color = "#7FB3FF"          # #RRGGBB
+graph_id = ""
+detail = "full"
+
+[[calendars]]
+key = "health"
+name = "Health"
+color = "#AFA9EC"
+graph_id = ""
+detail = "titles"          # share in Outlook as "Can view titles and locations"

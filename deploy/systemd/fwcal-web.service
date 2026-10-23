@@ -1,0 +1,50 @@
+# The web server: serves the page, events.json and photos. It never sees the
+# token (DESIGN §8.1, ADR-3). Started by fwcal-web.socket.
+[Unit]
+Description=wall-calendar web server
+Requires=fwcal-web.socket
+After=fwcal-web.socket
+
+[Service]
+Type=simple
+User=fwcal-web
+Group=fwcal-web
+SupplementaryGroups=fwcal
+WorkingDirectory=/opt/fwcal
+ExecStart=/opt/fwcal/.venv/bin/python -m fwcal serve
+Restart=on-failure
+RestartSec=2
+UMask=0077
+
+# No network of its own: the only socket it has is the one systemd passes in.
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX AF_INET
+
+# Read-only view of the system; the token directory is hidden outright.
+ProtectSystem=strict
+ProtectHome=yes
+InaccessiblePaths=-/var/lib/fwcal/auth
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+MemoryMax=256M
+TasksMax=64

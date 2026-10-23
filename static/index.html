@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Calendar</title>
+<link rel="stylesheet" href="/app.css">
+<script type="module" src="/js/app.js"></script>
+</head>
+<body>
+<div id="bg" aria-hidden="true"><img class="photo" alt=""><img class="photo" alt=""></div>
+<div id="shade" aria-hidden="true"></div>
+<div id="app">
+  <header id="top">
+    <div id="clock"><span id="time"></span><span id="ampm"></span></div>
+    <div id="date"></div>
+  </header>
+  <nav id="tabs" role="tablist">
+    <button type="button" role="tab" data-view="day">Day</button>
+    <button type="button" role="tab" data-view="week">Week</button>
+    <button type="button" role="tab" data-view="month">Month</button>
+  </nav>
+  <main id="view"></main>
+  <footer id="foot"><div id="legend"></div><div id="status" role="status"></div></footer>
+</div>
+<div id="sheet" hidden><div id="panel" role="dialog" aria-modal="true"></div></div>
+<div id="toast" role="status" hidden></div>
+</body>
+</html>
