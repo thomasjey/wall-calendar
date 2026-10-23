@@ -95,8 +95,16 @@ def _handle(req: Request) -> Response:
     return web.handle(req)
 
 
-async def handle(req: Request) -> Response:
-    return await asyncio.to_thread(_handle, req)
+def _in_thread(bind_logs, fn, *args):
+    """Runs in the worker thread. `bind_logs` ties this thread's log lines to
+    the current invocation; without it the Functions worker drops them."""
+    if bind_logs is not None:
+        bind_logs()
+    return fn(*args)
+
+
+async def handle(req: Request, bind_logs=None) -> Response:
+    return await asyncio.to_thread(_in_thread, bind_logs, _handle, req)
 
 
 def run_sync() -> int:
@@ -112,5 +120,5 @@ def run_sync() -> int:
     return code
 
 
-async def sync_now() -> int:
-    return await asyncio.to_thread(run_sync)
+async def sync_now(bind_logs=None) -> int:
+    return await asyncio.to_thread(_in_thread, bind_logs, run_sync)
