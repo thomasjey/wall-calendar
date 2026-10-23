@@ -93,16 +93,21 @@ function renderClock() {
   $('date').textContent = longDate(n);
 }
 
-function render({ keepScroll = false } = {}) {
-  const ctx = {
-    now: now(), focus: state.focus, byDay: state.byDay, cals: state.cals, settings: state.settings,
+function viewCtx(focus) {
+  return {
+    now: now(), focus, byDay: state.byDay, cals: state.cals, settings: state.settings,
     inWindow,
     openEvent: (ev, day) => openDetails(ev, day, state.cals.get(ev.cal), state.settings),
     goDay: (day) => { state.view = 'day'; state.focus = startOfDay(day); render(); },
   };
+}
+
+function render({ keepScroll = false } = {}) {
   const view = $('view');
   const top = view.scrollTop;
-  view.replaceChildren(views[state.view](ctx));
+  view.replaceChildren(views[state.view](viewCtx(state.focus)));
+  peek = null;  // replaceChildren removed any page drawn beside this one
+  dragX = 0;
   view.scrollTop = keepScroll ? top : 0;
   for (const b of document.querySelectorAll('#tabs button')) {
     const on = b.dataset.view === state.view;
@@ -156,7 +161,9 @@ function toast(text) {
   toast.timer = setTimeout(() => { t.hidden = true; }, 2000);
 }
 
-function navigate(dir, fromX = 0) {
+// Where paging one step in `dir` (+1 next, -1 previous) leads, or null if that
+// page is outside the synced window.
+function neighbour(dir) {
   const f = state.focus;
   let next;
   let range;
@@ -172,45 +179,94 @@ function navigate(dir, fromX = 0) {
     const g = monthGrid(next, state.settings.weekStart);
     range = [g.start, g.end];
   }
-  if (!overlapsWindow(range[0], range[1])) {
-    toast(dir > 0 ? 'Not synced this far ahead' : 'Not synced this far back');
-    springBack(fromX);
-    return;
-  }
-  state.focus = next;
-  slide(dir, fromX);
+  return overlapsWindow(range[0], range[1]) ? next : null;
 }
 
-// Paging motion (DESIGN §10.2): the page follows the finger, then the old page
-// leaves on the side it was pushed to and the new one arrives from the other.
-// Swiping left brings the next page, as in other calendars. Only transform and
-// opacity change, so it's cheap on the Pi; none of it with reduced motion.
+// Paging as a reel (DESIGN §10.2): during a drag the neighbouring page is drawn
+// just beside the current one and both move with the finger; on release they
+// roll on to it or back. Swiping left brings the next page, as in other
+// calendars. Only transforms change, so it's cheap on the Pi; with reduced
+// motion the page simply changes.
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const ROLL_MS = 220;
+const EDGE_RESISTANCE = 0.25;  // how far the page gives when there is nothing beyond it
 const page = () => $('view').firstElementChild;
+let peek = null;  // { dir, next, el }: the neighbouring page drawn beside the current one
+let dragX = 0;    // where the current page is drawn now
 
-function slide(dir, fromX = 0) {
-  const old = page();
-  if (reduceMotion.matches || !old || !old.animate) { render(); return; }
-  const w = $('view').clientWidth;
-  old.style.transform = '';
-  const out = old.animate(
-    [{ transform: `translateX(${fromX}px)`, opacity: 1 }, { transform: `translateX(${-dir * w}px)`, opacity: 0 }],
-    { duration: 140, easing: 'ease-in', fill: 'forwards' });
-  out.onfinish = () => {
+function showPeek(dir) {
+  if (peek && peek.dir === dir) return peek;
+  dropPeek();
+  const next = neighbour(dir);
+  if (!next) return null;
+  const v = $('view');
+  const el = views[state.view](viewCtx(next));
+  el.classList.add('peek');
+  el.style.top = `${v.scrollTop}px`;
+  v.append(el);
+  peek = { dir, next, el };
+  return peek;
+}
+
+function dropPeek() {
+  peek?.el.remove();
+  peek = null;
+}
+
+function dragTo(dx) {
+  const cur = page();
+  if (!cur || reduceMotion.matches) return;
+  const dir = dx < 0 ? 1 : -1;
+  const p = dx ? showPeek(dir) : null;
+  dragX = p ? dx : dx * EDGE_RESISTANCE;
+  cur.style.transform = `translateX(${dragX}px)`;
+  if (p) p.el.style.transform = `translateX(${dragX + dir * $('view').clientWidth}px)`;
+}
+
+function navigate(dir) {
+  const p = reduceMotion.matches ? null : showPeek(dir);
+  const next = p ? p.next : neighbour(dir);
+  if (!next) {
+    toast(dir > 0 ? 'Not synced this far ahead' : 'Not synced this far back');
+    rollBack();
+    return;
+  }
+  const cur = page();
+  if (!p || !cur?.animate) {
+    dropPeek();
+    state.focus = next;
     render();
-    page()?.animate(
-      [{ transform: `translateX(${dir * w * 0.35}px)`, opacity: 0 }, { transform: 'translateX(0)', opacity: 1 }],
-      { duration: 200, easing: 'ease-out' });
+    return;
+  }
+  const w = $('view').clientWidth;
+  const opts = { duration: ROLL_MS, easing: 'ease-out', fill: 'forwards' };
+  cur.style.transform = '';
+  p.el.style.transform = '';
+  const roll = cur.animate([{ transform: `translateX(${dragX}px)` }, { transform: `translateX(${-dir * w}px)` }], opts);
+  p.el.animate([{ transform: `translateX(${dragX + dir * w}px)` }, { transform: 'translateX(0)' }], opts);
+  dragX = 0;
+  roll.onfinish = () => {
+    peek = null;
+    state.focus = next;
+    render();  // draws the same page in its normal place, so nothing jumps
   };
 }
 
-function springBack(fromX = 0) {
-  const p = page();
-  if (!p) return;
-  p.style.transform = '';
-  if (fromX && !reduceMotion.matches && p.animate) {
-    p.animate([{ transform: `translateX(${fromX}px)` }, { transform: 'translateX(0)' }],
-      { duration: 160, easing: 'ease-out' });
+function rollBack() {
+  const cur = page();
+  const from = dragX;
+  dragX = 0;
+  if (!cur) return;
+  cur.style.transform = '';
+  if (!from || reduceMotion.matches || !cur.animate) { dropPeek(); return; }
+  const opts = { duration: ROLL_MS * 0.7, easing: 'ease-out' };
+  cur.animate([{ transform: `translateX(${from}px)` }, { transform: 'translateX(0)' }], opts);
+  if (peek) {
+    const { el, dir } = peek;
+    const w = $('view').clientWidth;
+    el.style.transform = `translateX(${dir * w}px)`;
+    el.animate([{ transform: `translateX(${from + dir * w}px)` }, { transform: `translateX(${dir * w}px)` }], opts)
+      .onfinish = () => { if (peek?.el === el) dropPeek(); };
   }
 }
 
@@ -238,6 +294,7 @@ function initInput() {
   view.addEventListener('pointerdown', (e) => {
     start = { x: e.clientX, y: e.clientY, id: e.pointerId };
     dragging = false;
+    swallowClick = false;  // touch swipes fire no click, so don't let one carry over to the next tap
   });
   view.addEventListener('pointermove', (e) => {
     if (!start || e.pointerId !== start.id) return;
@@ -247,7 +304,7 @@ function initInput() {
       dragging = true;
       try { view.setPointerCapture(e.pointerId); } catch { /* pointer already gone: the drag still works */ }
     }
-    if (dragging && !reduceMotion.matches && page()) page().style.transform = `translateX(${dx}px)`;
+    if (dragging) dragTo(dx);
   });
   view.addEventListener('pointerup', (e) => {
     if (!start || e.pointerId !== start.id) return;
@@ -257,15 +314,14 @@ function initInput() {
     start = null;
     dragging = false;
     swallowClick = wasDragging;  // a drag that ends on an event must not open it
-    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) navigate(dx < 0 ? 1 : -1, wasDragging ? dx : 0);
-    else if (wasDragging) springBack(dx);
+    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) navigate(dx < 0 ? 1 : -1);
+    else if (wasDragging) rollBack();
   });
   view.addEventListener('pointercancel', (e) => {
     if (!start || e.pointerId !== start.id) return;
-    const dx = dragging ? e.clientX - start.x : 0;
     start = null;
     dragging = false;
-    springBack(dx);
+    rollBack();
   });
   view.addEventListener('click', (e) => {
     if (swallowClick) { swallowClick = false; e.stopPropagation(); e.preventDefault(); }
