@@ -72,6 +72,10 @@ foreach ($ns in 'Microsoft.Web', 'Microsoft.Storage', 'Microsoft.KeyVault', 'Mic
 $rg = "rg-wallcal-$Env"
 Invoke-Az group create --name $rg --location $Location --tags "app=wall-calendar" "env=$Env" --output none
 $admin = Invoke-Az ad signed-in-user show --query id -o tsv
+# GitHub's OIDC subject names the repository with its permanent IDs: owner@ownerId/name@repoId.
+$repoInfo = gh api "repos/$Repo" | ConvertFrom-Json
+$oidcRepo = "$($repoInfo.owner.login)@$($repoInfo.owner.id)/$($repoInfo.name)@$($repoInfo.id)"
+if ($oidcRepo -notmatch '^[^@/]+@\d+/[^@/]+@\d+$') { throw "Could not read the repository IDs from GitHub." }
 
 if ($FirstRun) {
     # -FirstRun seeds placeholder secrets; never let it overwrite a real config or token.
@@ -84,7 +88,7 @@ if ($FirstRun) {
 }
 
 # --- 1. Foundation ---------------------------------------------------------
-$params = Write-TempJson @{ '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'; contentVersion = '1.0.0.0'; parameters = @{ env = @{ value = $Env }; adminPrincipalId = @{ value = $admin }; githubRepo = @{ value = $Repo }; seedSecrets = @{ value = [bool]$FirstRun } } }
+$params = Write-TempJson @{ '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'; contentVersion = '1.0.0.0'; parameters = @{ env = @{ value = $Env }; adminPrincipalId = @{ value = $admin }; githubOidcRepo = @{ value = $oidcRepo }; seedSecrets = @{ value = [bool]$FirstRun } } }
 try {
     Invoke-Az deployment group what-if --resource-group $rg --template-file "$root\infra\foundation.bicep" --parameters "@$params" --result-format ResourceIdOnly
     Confirm-Step "Deploy the foundation for ${Env}?"
