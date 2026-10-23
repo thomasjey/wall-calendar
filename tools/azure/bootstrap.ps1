@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $consumerTenant = '9188040d-6c67-4c5b-b112-36a304b66dad'
 $graphApi = '00000003-0000-0000-c000-000000000000'
-$calendarsRead = '465a38f9-76ea-45b9-9f34-9e8b0d4b0b42'
+$calendarsReadScopeId = '465a38f9-76ea-45b9-9f34-9e8b0d4b0b42'  # not $calendarsRead: names are case-insensitive
 
 function Invoke-Az {
     $out = & az @args
@@ -73,11 +73,21 @@ $rg = "rg-wallcal-$Env"
 Invoke-Az group create --name $rg --location $Location --tags "app=wall-calendar" "env=$Env" --output none
 $admin = Invoke-Az ad signed-in-user show --query id -o tsv
 
+if ($FirstRun) {
+    # -FirstRun seeds placeholder secrets; never let it overwrite a real config or token.
+    $existingVault = Invoke-Az keyvault list --resource-group $rg --query '[0].name' -o tsv
+    if ($existingVault) {
+        # The administrator can read only this one secret, so ask for it directly.
+        $null = az keyvault secret show --vault-name $existingVault --name fwcal-config --query id -o tsv 2>$null
+        if ($LASTEXITCODE -eq 0) { throw "The secrets in $existingVault already exist: run again without -FirstRun." }
+    }
+}
+
 # --- 1. Foundation ---------------------------------------------------------
 $params = Write-TempJson @{ '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'; contentVersion = '1.0.0.0'; parameters = @{ env = @{ value = $Env }; adminPrincipalId = @{ value = $admin }; githubRepo = @{ value = $Repo }; seedSecrets = @{ value = [bool]$FirstRun } } }
 try {
     Invoke-Az deployment group what-if --resource-group $rg --template-file "$root\infra\foundation.bicep" --parameters "@$params" --result-format ResourceIdOnly
-    Confirm-Step "Deploy the foundation for $Env?"
+    Confirm-Step "Deploy the foundation for ${Env}?"
     $out = Invoke-Az deployment group create --resource-group $rg --name foundation --template-file "$root\infra\foundation.bicep" --parameters "@$params" --query properties.outputs -o json | ConvertFrom-Json
 } finally { Remove-Item $params }
 $hostName = $out.hostName.value
@@ -97,7 +107,7 @@ function Set-AppRegistration([string]$name, [string]$redirect, [string]$identity
     Invoke-Graph patch $url @{ signInAudience = 'PersonalMicrosoftAccount' }
     Invoke-Graph patch $url @{ web = @{ redirectUris = @($redirect); implicitGrantSettings = @{ enableIdTokenIssuance = [bool]$IdTokens; enableAccessTokenIssuance = $false } } }
     if ($CalendarsRead) {
-        Invoke-Graph patch $url @{ requiredResourceAccess = @(@{ resourceAppId = $graphApi; resourceAccess = @(@{ id = $calendarsRead; type = 'Scope' }) }) }
+        Invoke-Graph patch $url @{ requiredResourceAccess = @(@{ resourceAppId = $graphApi; resourceAccess = @(@{ id = $calendarsReadScopeId; type = 'Scope' }) }) }
     }
     $fic = Invoke-Az ad app federated-credential list --id $appId --query "[?name=='managed-identity'].name" -o tsv
     if (-not $fic) {
