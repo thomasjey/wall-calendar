@@ -3,3 +3,6 @@
 pip-tools
 # The cloud's time-zone database, so its tests run on Windows too (azure/requirements.in).
 tzdata
+# Lint and dependency audit in CI (DESIGN 17.5).
+ruff
+pip-audit

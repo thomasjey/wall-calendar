@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -51,7 +51,7 @@ def run(cfg: Config, *, session=None, token_fn=local_token, now: datetime | None
         return CONFIG
     events_store = events or store.FileEventStore(events_path or paths.events_path(mock=False))
     now = now or datetime.now().astimezone()
-    now_utc = now.astimezone(timezone.utc)
+    now_utc = now.astimezone(UTC)
     start, end = sync_window(now.date(), cfg.lookahead_days, cfg.display.week_start)
     q_start, q_end = utc_query_range(start, end)
 

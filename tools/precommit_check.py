@@ -15,8 +15,8 @@ ALLOWED_PATHS = frozenset({"config.example.toml", "pyproject.toml"})
 BLOCKED_PATHS = [
     (re.compile(r"(^|/)(photos|reference|secrets)/"), "personal or third-party files"),
     (re.compile(r"\.toml$"), "a config file"),
-    (re.compile(r"(cache[^/]*|events[^/]*)\.json$", re.I), "a cache file"),
-    (re.compile(r"\.(pem|key|pfx|p12|cer|crt)$|(^|/)\.env(\.|$)", re.I), "key material"),
+    (re.compile(r"(cache[^/]*|events[^/]*)\.json$", re.IGNORECASE), "a cache file"),
+    (re.compile(r"\.(pem|key|pfx|p12|cer|crt)$|(^|/)\.env(\.|$)", re.IGNORECASE), "key material"),
 ]
 # Patterns are written so this file doesn't match itself.
 BLOCKED_CONTENT = [
@@ -24,7 +24,7 @@ BLOCKED_CONTENT = [
     (re.compile(rb'"(RefreshToken|AccessToken|IdToken)"\s*:'), "an MSAL token cache"),
     (re.compile(rb"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}"), "a JWT"),
     (re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
-    (re.compile(rb"(client_secret|password)\s*[=:]\s*['\"][^'\"\s]{6,}", re.I), "a secret value"),
+    (re.compile(rb"(client_secret|password)\s*[=:]\s*['\"][^'\"\s]{6,}", re.IGNORECASE), "a secret value"),
 ]
 
 
@@ -36,13 +36,13 @@ PERSONAL_WORDS = re.compile(
     r"\b(w[i]fe|hu[s]band|sp[o]use|d[a]ughters?|k[i]ds?|t[e]ens?|t[e]enagers?|t[o]ddlers?|"
     r"b[a]by|m[o]m|m[u]m|d[a]d|m[o]ther|f[a]ther|gr[a]ndparents?|gr[a]ndma|gr[a]ndpa|"
     r"sch[o]ols?|h[o]useholds?|f[a]mily|f[a]milies)\b",
-    re.I,
+    re.IGNORECASE,
 )
 # Technical uses of those words, removed before checking.
 PERSONAL_EXEMPT = re.compile(
     r"font-f[a]mily|\.f[a]mily\b|\bf[a]mily, kind\b|socket\(f[a]mily|\bf[a]mily: 'A'|"
     r"\bwork (and|or) sch[o]ol accounts?\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -91,11 +91,18 @@ def staged() -> list[str]:
     return [p for p in out.decode("utf-8").split("\0") if p]
 
 
-def main() -> int:
+def main(paths: list[str]) -> int:
+    """No arguments: the staged files (the git hook). With file arguments: those
+    files as they are on disk (CI runs it on every tracked file)."""
     found = []
-    for path in staged():
-        content = subprocess.run(["git", "show", f":{path}"], check=True, capture_output=True).stdout
-        found += problems(path, content)
+    if paths:
+        for path in paths:
+            with open(path, "rb") as f:
+                found += problems(path.replace("\\", "/"), f.read())
+    else:
+        for path in staged():
+            content = subprocess.run(["git", "show", f":{path}"], check=True, capture_output=True).stdout
+            found += problems(path, content)
     if found:
         print("pre-commit: commit blocked (see DESIGN.md section 7):", *found, sep="\n  ", file=sys.stderr)
         return 1
@@ -103,4 +110,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

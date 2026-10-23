@@ -38,7 +38,7 @@ class PreCommit(unittest.TestCase):
                 self.assertTrue(problems("fwcal/x.py", content))
         self.assertTrue(problems("fwcal/x.py", b"\xff\xfe"))
         # Visible non-ASCII text, tabs and CRLF are fine; binary files are skipped.
-        self.assertEqual(problems("a.md", "Café, Zoë\tx\r\n".encode("utf-8")), [])
+        self.assertEqual(problems("a.md", "Café, Zoë\tx\r\n".encode()), [])
         self.assertEqual(problems("static/fonts/x.woff2", bytes(range(256))), [])
 
     def test_personal_references_blocked(self):
@@ -58,7 +58,7 @@ class PreCommit(unittest.TestCase):
 
     def test_repository_files_pass(self):
         # Every file git would commit (tracked, or untracked and not ignored).
-        result = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=REPO_ROOT,
+        result = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=REPO_ROOT, check=False,
                                 capture_output=True)
         if result.returncode != 0:  # e.g. a root-owned deployment checkout ("dubious ownership")
             self.skipTest("git ls-files unavailable")

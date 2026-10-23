@@ -91,8 +91,8 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(r.status, 404, path)
 
     def test_bad_host_rejected(self):
-        for host in ("evil.example", "evil.example:%d" % self.port, "127.0.0.1", "127.0.0.1:1",
-                     "localhost.evil.example:%d" % self.port, ""):
+        for host in ("evil.example", f"evil.example:{self.port}", "127.0.0.1", "127.0.0.1:1",
+                     f"localhost.evil.example:{self.port}", ""):
             r, body = self.request("/api/events", host=host)
             self.assertEqual(r.status, 421, host)
             self.assertNotIn(b"events", body)
@@ -160,7 +160,7 @@ class ServerTest(unittest.TestCase):
                 data = json.loads(good)
                 data["generatedAt"] = "2030-01-01T00:00:00Z"
                 store.write_events(self.events, data)
-                r, body = self.request("/api/events")
+                _, body = self.request("/api/events")
                 self.assertEqual(load.call_count, 1)
                 self.assertEqual(json.loads(body)["generatedAt"], "2030-01-01T00:00:00Z")
             finally:

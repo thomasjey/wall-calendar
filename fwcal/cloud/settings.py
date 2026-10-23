@@ -21,7 +21,7 @@ import threading
 import time
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..config import Config, ConfigError, parse
@@ -94,7 +94,7 @@ def parse_settings(text: str) -> CloudSettings:
     if until is not None:
         if not isinstance(until, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", until):
             raise ConfigError('access.enrolment_until: "YYYY-MM-DDTHH:MM:SSZ"')
-        until = datetime.strptime(until, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        until = datetime.strptime(until, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     return CloudSettings(cfg, Access(allowed, admins, until), tz)
 
 

@@ -100,8 +100,7 @@ def normalize_event(ev: object, cal_key: str, *, show_notes: bool, detail: str =
         out.update(allDay=True, startDate=start.isoformat(), endDate=end.isoformat())
     else:
         start_dt, end_dt = _parse_utc(ev.get("start")), _parse_utc(ev.get("end"))
-        if end_dt < start_dt:
-            end_dt = start_dt
+        end_dt = max(end_dt, start_dt)
         out.update(
             allDay=False,
             start=start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),

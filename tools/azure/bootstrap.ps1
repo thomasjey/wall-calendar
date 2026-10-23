@@ -135,6 +135,7 @@ $values = @{
     SIGNIN_CLIENT_ID = $signin; SYNC_CLIENT_ID = $sync; ADMIN_PRINCIPAL_ID = $admin
 }
 foreach ($k in $values.Keys) { $values[$k] | gh secret set $k --env $Env --repo $Repo | Out-Null }
+gh variable set DEPLOY_ENABLED --body true --repo $Repo | Out-Null  # lets the deploy workflow run
 $have = gh secret list --env $Env --repo $Repo --json name --jq '.[].name'
 foreach ($k in 'ALLOWED_OBJECT_IDS', 'ALERT_EMAIL') {
     if ($have -notcontains $k) { Write-Output "  still to set (personal, entered by you): gh secret set $k --env $Env --repo $Repo" }

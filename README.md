@@ -8,7 +8,7 @@ holds or shares another project's credentials.
 
 Design: [`DESIGN.md`](DESIGN.md) is the source of truth (v0.26, signed off 2026-10-21).
 
-**Status:** Phases 1 and 3 done on the laptop. Phase 5 (away-from-home viewing through Azure, built to the production profile in DESIGN §17) in progress: experiments R1 and R6 done. Phase 4 (Raspberry Pi) when the hardware arrives.
+**Status:** Phases 1 and 3 done on the laptop. Phase 5 (viewing from anywhere through Azure, built to the production profile in DESIGN §17): experiments R1–R4, R6, R7 passed; cloud code, infrastructure as code and CI/CD built, first deployment next ([`deploy/AZURE.md`](deploy/AZURE.md)). Phase 4 (Raspberry Pi) when the hardware arrives.
 
 ## Run it with mock data (no credentials, no network)
 
@@ -71,8 +71,9 @@ python -m unittest discover -s tests -t .
 
 ## Repository safety
 
-Enable the pre-commit check once per clone. It blocks tokens, keys, config files, caches, photos and the
-`reference/` screenshots:
+This repository is public. Enable the pre-commit check once per clone. It blocks tokens, keys, config files,
+caches, photos, the `reference/` screenshots, invisible characters and words that refer to the people who use
+the calendar:
 
 ```bash
 git config core.hooksPath tools/git-hooks
@@ -81,8 +82,12 @@ git config core.hooksPath tools/git-hooks
 Never bypass it with `--no-verify`.
 
 ## Layout
-- `fwcal/`: Python backend (stdlib HTTP server, text cleaning, normalisation, mock data)
+- `fwcal/`: Python backend (stdlib HTTP server, text cleaning, normalisation, mock data, sync)
+- `fwcal/cloud/`: the away-from-home service (no MSAL, no Azure SDK; DESIGN ADR-30)
+- `azure/`: the Azure Functions entry point, `host.json` and its hash-pinned requirements
+- `infra/`: Bicep: `ops` (budget, kill switch), `foundation` (identities, Key Vault, storage, roles), `app` (Function App, sign-in, alerts)
 - `static/`: the page (vanilla HTML, CSS and ES modules; no build step, no CDN); `static/tests/` is served in mock mode only
 - `tests/`: Python unit tests (`unittest`)
-- `tools/`: pre-commit check
-- `deploy/`: Raspberry Pi files and the setup checklist ([`deploy/SETUP.md`](deploy/SETUP.md))
+- `tools/`: pre-commit check, package builder, deploy parameters, Azure setup scripts (`tools/azure/`)
+- `deploy/`: Raspberry Pi files and checklist ([`deploy/SETUP.md`](deploy/SETUP.md)); Azure guide ([`deploy/AZURE.md`](deploy/AZURE.md))
+- `.github/workflows/`: CI, CodeQL and deploy

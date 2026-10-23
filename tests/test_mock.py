@@ -83,7 +83,7 @@ class Mock(unittest.TestCase):
             bad = [m for m in ("msal", "requests", "urllib3", "jwt", "cryptography") if m in sys.modules]
             print("OUTBOUND", outbound, "MODULES", bad)
         """)
-        out = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True,
+        out = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True, check=False,
                              timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("OUTBOUND [] MODULES []", out.stdout)

@@ -4,7 +4,7 @@ import base64
 import importlib.util
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fwcal import store
 from fwcal.config import ConfigError
@@ -19,7 +19,7 @@ HOST = "app.example.net"
 VAULT = "https://kv-test.vault.azure.net"
 CONTAINER = "https://sttest.blob.core.windows.net/data"
 CLIENT = "11111111-2222-3333-4444-555555555555"
-NOW = datetime(2026, 10, 22, 18, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 22, 18, 0, tzinfo=UTC)
 
 CONFIG_TOML = f"""
 expected_account = "viewer@example.com"
@@ -81,7 +81,7 @@ def id_token(**claims):
     base = {"iss": f"https://login.microsoftonline.com/{CONSUMER}/v2.0", "tid": CONSUMER, "aud": CLIENT,
             "nonce": "n1", "exp": NOW.timestamp() + 600, "preferred_username": "Viewer@Example.com"}
     base.update(claims)
-    enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()  # noqa: E731
+    enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
     return f"{enc({'alg': 'RS256'})}.{enc(base)}.sig"
 
 
@@ -214,7 +214,7 @@ class OAuthTest(unittest.TestCase):
         return self.oauth.Tokens(**fields)
 
     def test_verify_consent_accepts_only_the_viewer(self):
-        verify = lambda t, nonce="n1": self.oauth.verify_consent(  # noqa: E731
+        verify = lambda t, nonce="n1": self.oauth.verify_consent(
             t, client_id=CLIENT, nonce=nonce, expected_account="viewer@example.com", now=NOW.timestamp())
         self.assertEqual(verify(self.consent()), "viewer@example.com")
         bad = {
@@ -622,7 +622,8 @@ class NoMsalTest(unittest.TestCase):
         code = ("import sys; import fwcal.cloud.app, fwcal.sync; "
                 "bad = sorted(m for m in sys.modules if m.split('.')[0] in ('msal', 'fwcal.auth') or m == 'fwcal.auth'); "
                 "print(bad); sys.exit(1 if bad else 0)")
-        result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True,
+                                check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 

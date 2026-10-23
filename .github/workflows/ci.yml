@@ -1,0 +1,66 @@
+# Checks on every pull request and push to main (DESIGN §17.5). Required to
+# pass before merging (branch protection). Actions are pinned by commit.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned dependencies (hashes checked)
+        run: |
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements.txt
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-dev.txt
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r azure/requirements.txt
+      - name: Unit, server, adversarial and cloud tests
+        run: python -m unittest discover -s tests -v
+      - name: Repository checks (secrets, private files, personal references)
+        run: python tools/precommit_check.py $(git ls-files)
+      - name: Lint
+        run: ruff check .
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          pip-audit --require-hashes --disable-pip -r requirements.txt
+          pip-audit --require-hashes --disable-pip -r azure/requirements.txt
+      - name: Build the package (reproducible)
+        run: python tools/build_package.py dist/function.zip
+
+  bicep:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and lint the templates
+        run: |
+          for f in infra/ops.bicep infra/foundation.bicep infra/app.bicep; do
+            az bicep build --file "$f" --stdout > /dev/null
+          done
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low

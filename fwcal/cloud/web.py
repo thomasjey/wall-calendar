@@ -14,7 +14,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..server import SECURITY_HEADERS
 from . import principal as principals
@@ -53,7 +53,7 @@ def _text(status: int, message: str) -> Response:
 class Web:
     def __init__(self, *, static: dict[str, tuple[bytes, str]], settings: SettingsCache, events: EventsCache,
                  hostnames: frozenset[str], consent: Consent | None,
-                 now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
+                 now: Callable[[], datetime] = lambda: datetime.now(UTC)) -> None:
         self._static, self._settings, self._events = static, settings, events
         self._hosts = frozenset(h.lower() for h in hostnames)
         self._consent, self._now = consent, now
@@ -166,7 +166,7 @@ class Web:
         age = None
         if isinstance(generated, str):
             age = int((self._now() - datetime.strptime(generated, "%Y-%m-%dT%H:%M:%SZ")
-                       .replace(tzinfo=timezone.utc)).total_seconds())
+                       .replace(tzinfo=UTC)).total_seconds())
         cals = [{"key": c["key"], "status": c["status"]} for c in data.get("calendars", [])]
         if data.get("error") or age is None:
             status = "no_data"

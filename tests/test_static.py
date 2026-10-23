@@ -39,14 +39,14 @@ class FrontendSource(unittest.TestCase):
         for path in frontend_files(include_tests=True):
             text = path.read_text(encoding="utf-8")
             with self.subTest(file=path.name):
-                self.assertIsNone(re.search(r"(https?:)?//[a-z0-9.-]+\.[a-z]{2,}", text, re.I))
+                self.assertIsNone(re.search(r"(https?:)?//[a-z0-9.-]+\.[a-z]{2,}", text, re.IGNORECASE))
 
     def test_no_inline_script_or_style(self):
         for path in STATIC_DIR.rglob("*.html"):
             text = path.read_text(encoding="utf-8")
             with self.subTest(file=path.name):
                 self.assertIsNone(re.search(r"<script(?![^>]*\bsrc=)[^>]*>", text))
-                self.assertIsNone(re.search(r"<style\b|\sstyle=|\son[a-z]+=", text, re.I))
+                self.assertIsNone(re.search(r"<style\b|\sstyle=|\son[a-z]+=", text, re.IGNORECASE))
 
     def test_only_expected_file_types(self):
         allowed = {".html", ".css", ".js", ".woff2", ".txt", ".md"}
@@ -58,7 +58,7 @@ class FrontendSource(unittest.TestCase):
 class VendoredFonts(unittest.TestCase):
     def test_hashes_match_sources(self):
         sources = (STATIC_DIR / "fonts" / "SOURCES.md").read_text(encoding="utf-8")
-        rows = re.findall(r"^\| `([^`]+)` \|.*\| `([0-9a-f]{64})` \|$", sources, re.M)
+        rows = re.findall(r"^\| `([^`]+)` \|.*\| `([0-9a-f]{64})` \|$", sources, re.MULTILINE)
         self.assertEqual({name for name, _ in rows}, {"InterVariable.woff2", "LICENSE.txt"})
         for name, digest in rows:
             with self.subTest(file=name):
