@@ -37,6 +37,9 @@ class Display:
     idle_seconds: int = 120
     photo_interval_seconds: int = 600
     night_dim: tuple[str, ...] = ("22:00", "06:30")
+    # Rough position (one decimal, about 10 km) for sunrise and sunset in the
+    # page's sky; None uses fixed hours. Private config only, never the repo.
+    location: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,11 @@ def parse(data: dict) -> Config:
     night = _get(d, "night_dim", list, ["22:00", "06:30"])
     if night and (len(night) != 2 or not all(isinstance(t, str) and HHMM_RE.match(t) for t in night)):
         raise ConfigError('display.night_dim: ["HH:MM", "HH:MM"] or []')
+    location = _get(d, "location", list, [])
+    if location and (len(location) != 2
+                     or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in location)
+                     or not (-90 <= location[0] <= 90 and -180 <= location[1] <= 180)):
+        raise ConfigError("display.location: [latitude, longitude] in degrees, or leave it out")
     display = Display(
         clock=clock,
         week_start=week_start,
@@ -105,6 +113,7 @@ def parse(data: dict) -> Config:
         idle_seconds=_int_in(d, "idle_seconds", 120, 15, 3600),
         photo_interval_seconds=_int_in(d, "photo_interval_seconds", 600, 10, 86400),
         night_dim=tuple(night),
+        location=(round(float(location[0]), 1), round(float(location[1]), 1)) if location else None,
     )
 
     calendars = []

@@ -476,6 +476,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.get("/api/events", if_none_match=events.headers["ETag"]).status, 304)
         self.assertEqual(json.loads(self.get("/api/photos").body), {"photos": []})
         self.assertEqual(json.loads(self.get("/api/settings").body)["clock"], "12h")
+        self.assertIsNone(json.loads(self.get("/api/settings").body)["location"])
         self.assertEqual(self.get("/nope").status, 404)
 
     def test_deny_by_default(self):

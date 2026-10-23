@@ -19,6 +19,8 @@ show_notes = true          # false: notes are dropped by the sync job, never sto
 idle_seconds = 120         # return to Today after this long without a touch
 photo_interval_seconds = 600
 night_dim = ["22:00", "06:30"]   # [] to disable
+# location = [51.5, -0.1]          # rough [latitude, longitude] for sunrise and sunset in the sky
+                                   # backdrop (rounded to 0.1 degree, about 10 km); leave out for fixed hours
 
 # One table per calendar. Get graph_id values from `fwcal calendars` (Phase 3).
 # detail: "full" (title, time, location, notes), "titles" (title and time only)

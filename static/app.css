@@ -52,6 +52,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: opacity 2s ease;
 }
 #bg .photo.on { opacity: 1; }
+/* No photos: a muted sky that follows the real sunrise and sunset; app.js
+   sets the four stops every minute (time.js skyColors). */
+body.sky #bg {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(to bottom, var(--sky-0, #0b1022) 0%, var(--sky-1, #121a33) 45%,
+    var(--sky-2, #18213d) 78%, var(--sky-3, #1c2644) 100%);
+}
 #shade {
   position: fixed;
   inset: 0;
@@ -60,6 +68,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: background-color 3s ease;
 }
 body.night #shade { background-color: rgba(0, 0, 0, 0.5); }
+/* The sky is already muted: a lighter shade than photos need keeps its colour. */
+body.sky #shade { background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.08) 30%,
+  rgba(0, 0, 0, 0.08) 70%, rgba(0, 0, 0, 0.3) 100%); }
 
 /* ----- layout ----- */
 #app {

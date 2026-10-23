@@ -157,7 +157,7 @@ class Web:
         return json.dumps({
             "clock": d.clock, "weekStart": d.week_start, "showNotes": d.show_notes,
             "idleSeconds": d.idle_seconds, "photoIntervalSeconds": d.photo_interval_seconds,
-            "nightDim": [], "mock": False, "debugNow": None,
+            "nightDim": [], "location": list(d.location) if d.location else None, "mock": False, "debugNow": None,
         }, separators=(",", ":")).encode("ascii")
 
     def _health(self) -> bytes:

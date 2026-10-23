@@ -180,6 +180,7 @@ class ServerTest(unittest.TestCase):
         _, body = self.request("/api/settings")
         s = json.loads(body)
         self.assertEqual((s["clock"], s["weekStart"], s["showNotes"], s["debugNow"]), ("12h", "sunday", True, None))
+        self.assertIsNone(s["location"])  # not configured: the page uses fixed hours for its sky
 
     def test_photos(self):
         _, body = self.request("/api/photos")

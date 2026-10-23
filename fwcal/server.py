@@ -172,7 +172,7 @@ class App:
         body = {
             "clock": d.clock, "weekStart": d.week_start, "showNotes": d.show_notes,
             "idleSeconds": d.idle_seconds, "photoIntervalSeconds": d.photo_interval_seconds,
-            "nightDim": list(d.night_dim), "mock": self.mock,
+            "nightDim": list(d.night_dim), "location": list(d.location) if d.location else None, "mock": self.mock,
             "debugNow": now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if now else None,
         }
         return json.dumps(body, separators=(",", ":")).encode("ascii")

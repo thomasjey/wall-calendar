@@ -185,6 +185,41 @@ test('Trusted Types blocks HTML sinks', () => {
   eq(blocked, true);
 });
 
+test('sunrise and sunset (NOAA), within 5 minutes of published values', () => {
+  const near = (d, iso) => { if (Math.abs(d.getTime() - Date.parse(iso)) > 5 * 60000) throw new Error(`${d.toISOString()} vs ${iso}`); };
+  // London, midsummer and midwinter (published: 03:43/20:21 and 08:04/15:54 UTC).
+  const summer = t.sunTimes(local(2026, 6, 21, 12), 51.5, -0.1);
+  near(summer.sunrise, '2026-06-21T03:43:00Z');
+  near(summer.sunset, '2026-06-21T20:21:00Z');
+  const winter = t.sunTimes(local(2026, 12, 21, 12), 51.5, -0.1);
+  near(winter.sunrise, '2026-12-21T08:04:00Z');
+  near(winter.sunset, '2026-12-21T15:54:00Z');
+  // No sunrise in the polar night, no sunset in the midnight sun.
+  eq(t.sunTimes(local(2026, 12, 21, 12), 78.2, 15.6), null);
+  eq(t.sunTimes(local(2026, 6, 21, 12), 78.2, 15.6), null);
+});
+
+test('sky blends from night to dawn at sunrise, day, dusk at sunset, night', () => {
+  // Without a location: sunrise 6:30, sunset 19:00.
+  eq(t.skyColors(local(2026, 10, 22, 2, 0), null), [...t.SKIES.night]);
+  eq(t.skyColors(local(2026, 10, 22, 6, 30), null), [...t.SKIES.dawn]);
+  eq(t.skyColors(local(2026, 10, 22, 13, 0), null), [...t.SKIES.day]);
+  eq(t.skyColors(local(2026, 10, 22, 19, 0), null), [...t.SKIES.dusk]);
+  eq(t.skyColors(local(2026, 10, 22, 23, 0), null), [...t.SKIES.night]);
+  const between = t.skyColors(local(2026, 10, 22, 5, 45), null);  // halfway from night to dawn
+  if (between[3] === t.SKIES.night[3] || between[3] === t.SKIES.dawn[3]) throw new Error('not blended');
+  for (const c of between) if (!/^#[0-9a-f]{6}$/.test(c)) throw new Error(`bad colour ${c}`);
+  // With a location the real sunrise is used (polar night: falls back to fixed hours).
+  eq(t.skyColors(local(2026, 12, 21, 13, 0), [78.2, 15.6]), [...t.SKIES.day]);
+});
+
+test('settings: location only as two finite numbers in range', () => {
+  eq(parseSettings({ location: [51.5, -0.1] }).settings.location, [51.5, -0.1]);
+  for (const bad of [[91, 0], [0, 181], ['51', '0'], [51.5], null, 'x', [NaN, 0]]) {
+    eq(parseSettings({ location: bad }).settings.location, null);
+  }
+});
+
 const failed = results.filter(([ok]) => !ok);
 document.getElementById('out').textContent = results.map(([ok, n]) => `${ok ? 'ok  ' : 'FAIL'} ${n}`).join('\n');
 document.title = failed.length ? `FAIL ${failed.length} of ${results.length}` : `PASS ${results.length}`;
