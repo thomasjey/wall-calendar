@@ -2,7 +2,7 @@ import subprocess
 import unittest
 
 from fwcal.paths import REPO_ROOT
-from tools.precommit_check import problems
+from tools.precommit_check import load_blocklist, problems
 
 
 class PreCommit(unittest.TestCase):
@@ -56,6 +56,23 @@ class PreCommit(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(problems("x.py", text.encode()), [])
 
+    def test_blocklist(self):
+        import re
+
+        from tools.precommit_check import blocked_strings
+
+        entries = ["Alexandra", "00000000-0000-0000-abcd-0123456789ab", "someone.private@example.com"]
+        bl = [re.compile(rf"(?<![A-Za-z0-9]){re.escape(e)}(?![A-Za-z0-9])", re.IGNORECASE) for e in entries]
+        for text in ("Hello alexandra", "id = 00000000-0000-0000-ABCD-0123456789AB", "mail SOMEONE.private@example.com"):
+            with self.subTest(text=text):
+                found = problems("notes.md", text.encode(), bl)
+                self.assertTrue(found)
+                self.assertFalse([f for f in found if any(e.lower() in f.lower() for e in entries)])  # never echoed
+        for text in ("Alexandrakis", "x00000000-0000-0000-abcd-0123456789abc", "no match here"):
+            with self.subTest(text=text):
+                self.assertEqual(blocked_strings(text, bl), [])
+        self.assertEqual(problems("notes.md", b"Alexandra"), [])  # no list, nothing blocked
+
     def test_repository_files_pass(self):
         # Every file git would commit (tracked, or untracked and not ignored).
         result = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=REPO_ROOT, check=False,
@@ -63,9 +80,10 @@ class PreCommit(unittest.TestCase):
         if result.returncode != 0:  # e.g. a root-owned deployment checkout ("dubious ownership")
             self.skipTest("git ls-files unavailable")
         out = result.stdout
+        blocklist = load_blocklist()  # the local list, if this clone has one
         for rel in filter(None, out.decode("utf-8").split("\0")):
             with self.subTest(path=rel):
-                self.assertEqual(problems(rel, (REPO_ROOT / rel).read_bytes()), [])
+                self.assertEqual(problems(rel, (REPO_ROOT / rel).read_bytes(), blocklist), [])
 
 
 if __name__ == "__main__":
