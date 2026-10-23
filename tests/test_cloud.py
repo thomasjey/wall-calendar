@@ -643,6 +643,27 @@ class RunSyncTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
+class ThreadLoggingTest(unittest.TestCase):
+    def test_log_binding_runs_first_in_the_worker_thread(self):
+        import asyncio
+        import threading
+
+        from fwcal.cloud import app
+
+        seen = []
+        orig = app._handle
+        app._handle = lambda req: seen.append(("work", threading.get_ident())) or "response"
+        try:
+            result = asyncio.run(app.handle("req", lambda: seen.append(("bind", threading.get_ident()))))
+        finally:
+            app._handle = orig
+        self.assertEqual(result, "response")
+        self.assertEqual([what for what, _ in seen], ["bind", "work"])
+        self.assertEqual(seen[0][1], seen[1][1])  # same thread
+        self.assertNotEqual(seen[0][1], threading.get_ident())  # not the event loop's thread
+
+
+@unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
 class StartupFailureTest(unittest.TestCase):
     def test_setup_failure_is_a_short_answer_with_headers(self):
         from fwcal.cloud import app
