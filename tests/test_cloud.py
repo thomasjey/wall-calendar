@@ -681,24 +681,18 @@ class SyncOutcomeTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
-class ThreadLoggingTest(unittest.TestCase):
-    def test_log_binding_runs_first_in_the_worker_thread(self):
-        import asyncio
-        import threading
+class EntryPointTest(unittest.TestCase):
+    def test_functions_are_plain_so_the_runtime_threads_them(self):
+        # Async functions would run on the runtime's event loop, where blocking
+        # calls stall it and log lines lose their invocation (DESIGN ADR-25).
+        import ast
 
-        from fwcal.cloud import app
+        from fwcal.paths import REPO_ROOT
 
-        seen = []
-        orig = app._handle
-        app._handle = lambda req: seen.append(("work", threading.get_ident())) or "response"
-        try:
-            result = asyncio.run(app.handle("req", lambda: seen.append(("bind", threading.get_ident()))))
-        finally:
-            app._handle = orig
-        self.assertEqual(result, "response")
-        self.assertEqual([what for what, _ in seen], ["bind", "work"])
-        self.assertEqual(seen[0][1], seen[1][1])  # same thread
-        self.assertNotEqual(seen[0][1], threading.get_ident())  # not the event loop's thread
+        tree = ast.parse((REPO_ROOT / "azure" / "function_app.py").read_text(encoding="utf-8"))
+        decorated = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.decorator_list]
+        self.assertEqual(sorted(n.name for n in decorated), ["sync", "web"])
+        self.assertFalse([n.name for n in decorated if isinstance(n, ast.AsyncFunctionDef)])
 
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
