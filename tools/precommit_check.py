@@ -40,7 +40,8 @@ PERSONAL_WORDS = re.compile(
 )
 # Technical uses of those words, removed before checking.
 PERSONAL_EXEMPT = re.compile(
-    r"font-f[a]mily|\.f[a]mily\b|\bf[a]mily, kind\b|socket\(f[a]mily|\bwork (and|or) sch[o]ol accounts?\b",
+    r"font-f[a]mily|\.f[a]mily\b|\bf[a]mily, kind\b|socket\(f[a]mily|\bf[a]mily: 'A'|"
+    r"\bwork (and|or) sch[o]ol accounts?\b",
     re.I,
 )
 

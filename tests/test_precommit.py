@@ -52,7 +52,7 @@ class PreCommit(unittest.TestCase):
         fam = "fam" + "ily"
         for text in (f"font-{fam}: Inter;", f"sock.{fam} != socket.AF_INET", f"for {fam}, kind, addr in x:",
                      f"socket.socket({fam}, kind)", "work and sch" + "ool accounts can't sign in",
-                     "json, reason, person, Season, kidney, skids"):
+                     "json, reason, person, Season, kidney, skids", f"sku: {{ {fam}: 'A', name: 'standard' }}"):
             with self.subTest(text=text):
                 self.assertEqual(problems("x.py", text.encode()), [])
 
