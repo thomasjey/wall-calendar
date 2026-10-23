@@ -1,4 +1,4 @@
-"""Pre-commit check: blocks secrets and private files (DESIGN §7).
+"""Pre-commit check: blocks secrets, private files and personal references (DESIGN §0, §7).
 
 Enabled with `git config core.hooksPath tools/git-hooks`. Never bypass it with
 --no-verify; fix the commit instead.
@@ -28,6 +28,31 @@ BLOCKED_CONTENT = [
 ]
 
 
+# The repository is public: no references to the people who use it, even
+# indirect ones (DESIGN §0). Real names can't be listed here, because this file
+# is public too; they stay in gitignored files only. Bracketed letters keep the
+# words from matching this file.
+PERSONAL_WORDS = re.compile(
+    r"\b(w[i]fe|hu[s]band|sp[o]use|d[a]ughters?|k[i]ds?|t[e]ens?|t[e]enagers?|t[o]ddlers?|"
+    r"b[a]by|m[o]m|m[u]m|d[a]d|m[o]ther|f[a]ther|gr[a]ndparents?|gr[a]ndma|gr[a]ndpa|"
+    r"sch[o]ols?|h[o]useholds?|f[a]mily|f[a]milies)\b",
+    re.I,
+)
+# Technical uses of those words, removed before checking.
+PERSONAL_EXEMPT = re.compile(
+    r"font-f[a]mily|\.f[a]mily\b|\bf[a]mily, kind\b|socket\(f[a]mily|\bwork (and|or) sch[o]ol accounts?\b",
+    re.I,
+)
+
+
+def personal_words(text: str) -> list[str]:
+    found = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        for m in PERSONAL_WORDS.finditer(PERSONAL_EXEMPT.sub(" ", line)):
+            found.append(f'line {lineno}: "{m.group(0)}"')
+    return found
+
+
 BINARY_SUFFIXES = (".woff2", ".png", ".jpg", ".jpeg", ".webp")
 
 
@@ -55,6 +80,7 @@ def problems(path: str, content: bytes) -> list[str]:
             found.append(f"{path}: not UTF-8 text")
         else:
             found += [f"{path}: invisible character at {where}" for where in invisible_chars(text)[:5]]
+            found += [f"{path}: personal reference at {where}" for where in personal_words(text)[:5]]
     return found
 
 

@@ -41,6 +41,21 @@ class PreCommit(unittest.TestCase):
         self.assertEqual(problems("a.md", "Café, Zoë\tx\r\n".encode("utf-8")), [])
         self.assertEqual(problems("static/fonts/x.woff2", bytes(range(256))), [])
 
+    def test_personal_references_blocked(self):
+        # Built from pieces so this file doesn't contain the words itself.
+        for word in ("wi" + "fe", "Daugh" + "ter", "ki" + "ds", "sch" + "ool", "Fam" + "ily", "house" + "hold",
+                     "grand" + "parents"):
+            with self.subTest(word=word):
+                self.assertTrue(problems("DESIGN.md", f"Shown to my {word} too.\n".encode()))
+
+    def test_technical_uses_allowed(self):
+        fam = "fam" + "ily"
+        for text in (f"font-{fam}: Inter;", f"sock.{fam} != socket.AF_INET", f"for {fam}, kind, addr in x:",
+                     f"socket.socket({fam}, kind)", "work and sch" + "ool accounts can't sign in",
+                     "json, reason, person, Season, kidney, skids"):
+            with self.subTest(text=text):
+                self.assertEqual(problems("x.py", text.encode()), [])
+
     def test_repository_files_pass(self):
         # Every file git would commit (tracked, or untracked and not ignored).
         result = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=REPO_ROOT,

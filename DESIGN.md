@@ -1,6 +1,6 @@
 # wall-calendar — Design
 
-**Version:** 0.24 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1, R2, R3, R4, R6, R7 passed (§15.13); next: R5 (the iPad), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
+**Version:** 0.25 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1, R2, R3, R4, R6, R7 passed (§15.13); next: R5 (the iPad), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
 **Date:** 2026-10-04
 **Conventions:** decisions are ADRs (§13), unknowns are spikes (§12.3), and nothing personal goes in this repository.
 
@@ -131,7 +131,7 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 6. URLs stay as plain text. They are never turned into links (G5). Very long URLs are shortened for display to `host/…` (cosmetic).
 7. **Private events:** if `sensitivity` is `private` or `confidential`, title becomes "Private", and location and notes are dropped **in the sync job**, so they never reach the disk.
 7a. **Detail level** (`detail` per calendar, ADR-15): `full` keeps everything; `titles` keeps the title and time and drops location and notes; `busy` shows "Busy" and the time only. Applied in the sync job, so hidden fields never reach the disk or the browser. Private events stay "Private" at every level.
-8. `isCancelled` events are dropped. `showAs: free` events are kept (families often mark activities free).
+8. `isCancelled` events are dropped. `showAs: free` events are kept (people often mark activities free).
 9. **IDs:** Graph IDs never leave the sync job. Events get `sha256(calendarKey + graphId)[:16]`, and calendars get the config key (e.g. `home`).
 
 ### 5.5 Time handling
@@ -692,6 +692,7 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 - **Build:** one artifact per release, from hash-pinned dependencies (`--require-hashes`), with an **SBOM** (CycloneDX) and a build provenance attestation stored with the release.
 - **Deploy:** OIDC federation from GitHub to a deploy identity that has **Contributor on the environment's resource group only** (never the subscription); dev on merge, prod on a tagged release after manual approval; `what-if` output attached to the approval.
 - **Branch protection on `main`:** pull requests only, required checks, no force pushes.
+- **Why the repository is public (decided 2026-10-22, ADR-29):** on a free plan, branch protection, deploy environments with required reviewers, CodeQL, secret-scanning push protection, dependency review and artifact attestations are available only for public repositories. Security doesn't depend on the code being secret. The repository holds no secrets, no IDs and **no references to the people who use it**; the pre-commit check blocks such words (§0), and real names, IDs and calendar details live only in gitignored files and in Key Vault. Publishing started a new repository from one fresh commit, so earlier wording isn't in its history; the earlier private repository is kept as an archive.
 
 ### 17.6 Testing beyond unit tests
 - **Load tests** (in dev): find the per-instance concurrency and instance count that meet the SLOs; record the results here.
@@ -748,6 +749,13 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | ADR-23 | Paid components are Bicep switches: scale-out to 4 **on**; one always-ready instance in prod **on**; Front Door + WAF **off**; private networking **off**; zone redundancy **off** |
 | ADR-24 | Budget $10/month with a kill switch that stops both Function Apps at 100% |
 | ADR-25 | Python with async handlers stays the implementation language; per-instance concurrency and instance limits come from load tests |
+| ADR-29 | The repository is **public**, started fresh with no references to the people who use it; enforced by the pre-commit check (§17.5) |
+| ADR-30 | **No MSAL in the cloud:** the cloud code makes three plain OAuth calls (refresh, consent code redemption, managed-identity assertion). Its runtime dependencies are `azure-functions` and `requests` only, pinned with hashes. The Pi and laptop keep MSAL |
+| ADR-31 | **Cloud config in Key Vault, written only by me:** calendars (Graph IDs, names, colours, detail levels), display settings, the code allowlist and the admin ID, as one TOML secret. Changing a detail level is as sensitive as changing the allowlist, so it gets the same protection (ADR-28). Nothing personal is in the repository |
+| ADR-32 | **Two layers of infrastructure:** *foundation* (identities, Key Vault, storage, role assignments), deployed rarely by me; *app* (Function App, its settings, sign-in settings with the platform allowlist, code), deployed by the pipeline with Contributor on the resource group. The app registrations and their federated credentials are made by a one-time bootstrap script I run; the pipeline has no directory permissions |
+| ADR-33 | **Dev uses its own viewer account** with a test calendar of synthetic events (§17.6); until it exists, dev runs on mock data |
+
+*Note on the two identities (ADR-26, ADR-27):* both are assigned to the same Function App, so any of its code can use either. Keeping them apart limits **which app registration trusts which identity**; it is not isolation between pieces of code.
 
 ## Appendix: Design history
 
@@ -757,6 +765,7 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | 0.2 | 2026-10-04 | Open questions answered: ADR-1 accepted; ADR-11 independence (§0) and personal details removed from this repo; ADR-12 display defaults and `show_notes`; §9.0 hardware recommendation; ADR-14 Inter font |
 | 0.3 | 2026-10-21 | Visual baseline approved from the interactive mockup (§10.1) |
 | 0.4 | 2026-10-21 | Phase 1 done (§12.5): stdlib-only, `unittest` instead of pytest, `--config` instead of an environment override, server hardening additions |
+| 0.25 | 2026-10-22 | ADR-29 public repository with no personal references (pre-commit check); Phase 5 build choices ADR-30 to ADR-33 |
 | 0.24 | 2026-10-22 | ADR-28: two allowlists with different owners (platform list by the approved deploy, code list in Key Vault written only by me); fail closed; change alerts; drift check (§15.4, T30); §14 paging to other months recorded as a possible later feature; R4 passed (§15.13) |
 | 0.23 | 2026-10-22 | §15.13 spike results R1, R2, R3, R6, R7; ADR-26 web sign-in without a client secret; ADR-27 cloud sync with a managed identity instead of a Key Vault key, consent through an admin-only page (§15.6, T29, R10) |
 | 0.22 | 2026-10-22 | **§17 signed off** (ADR-22 to ADR-25 accepted) |

@@ -6,7 +6,7 @@ Developed and tested on a PC first.
 Independent of my other projects by design: this display reads calendars with its own read-only access and never
 holds or shares another project's credentials.
 
-Design: [`DESIGN.md`](DESIGN.md) is the source of truth (v0.24, signed off 2026-10-21).
+Design: [`DESIGN.md`](DESIGN.md) is the source of truth (v0.25, signed off 2026-10-21).
 
 **Status:** Phases 1 and 3 done on the laptop. Phase 5 (away-from-home viewing through Azure, built to the production profile in DESIGN §17) in progress: experiments R1 and R6 done. Phase 4 (Raspberry Pi) when the hardware arrives.
 
