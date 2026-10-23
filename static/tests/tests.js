@@ -2,6 +2,7 @@
 // Results: the page title becomes "PASS n" or "FAIL n of m".
 
 import * as t from '../js/time.js';
+import * as astro from '../js/astro.js';
 import { el, setCalColor, setPhoto, showFullTextOnHover } from '../js/dom.js';
 import { DEFAULTS, parseSettings } from '../js/settings.js';
 
@@ -218,6 +219,37 @@ test('settings: location only as two finite numbers in range', () => {
   for (const bad of [[91, 0], [0, 181], ['51', '0'], [51.5], null, 'x', [NaN, 0]]) {
     eq(parseSettings({ location: bad }).settings.location, null);
   }
+});
+
+test('sun and moon: the April 2024 total eclipse lines them up; phases', () => {
+  const close = (a, b, tol, what) => { if (Math.abs(a - b) > tol) throw new Error(`${what}: ${a} vs ${b}`); };
+  // Total solar eclipse, greatest eclipse 2024-04-08 18:17 UTC: sun and moon in the same place.
+  const eclipse = new Date(Date.UTC(2024, 3, 8, 18, 17));
+  const s = astro.sunEquatorial(eclipse);
+  const m = astro.moonEquatorial(eclipse);
+  close(m.dec / (Math.PI / 180), s.dec / (Math.PI / 180), 1.5, 'declination');
+  const dra = Math.abs(((m.ra - s.ra) / (Math.PI / 180) + 540) % 360 - 180);
+  close(dra, 0, 1.5, 'right ascension');
+  // Seen from the eclipse path (Dallas), both stand together, high in the southern sky.
+  const sunAt = astro.sunPosition(eclipse, 32.8, -96.8);
+  const moonAt = astro.moonPosition(eclipse, 32.8, -96.8);
+  close(sunAt.alt, moonAt.alt, 2, 'altitude');
+  close(sunAt.az, moonAt.az, 3, 'azimuth');
+  close(sunAt.alt, 64, 3, 'sun altitude');
+  // New moon at the eclipse; full moon 2024-04-23 23:49 UTC.
+  const atEclipse = astro.moonPhase(eclipse);
+  if (atEclipse.lit > 0.02) throw new Error(`lit at new moon: ${atEclipse.lit}`);
+  const full = astro.moonPhase(new Date(Date.UTC(2024, 3, 23, 23, 49)));
+  close(full.phase, 0.5, 0.03, 'full moon phase');
+  if (full.lit < 0.98) throw new Error(`lit at full moon: ${full.lit}`);
+});
+
+test('sun stands high at noon, below the horizon at midnight', () => {
+  // London, midsummer: about 62 degrees at solar noon (12:01 UTC), well below at midnight.
+  const noon = astro.sunPosition(new Date(Date.UTC(2026, 5, 21, 12, 1)), 51.5, -0.1);
+  if (Math.abs(noon.alt - 62) > 1.5 || Math.abs(noon.az - 180) > 3) throw new Error(JSON.stringify(noon));
+  const midnight = astro.sunPosition(new Date(Date.UTC(2026, 5, 21, 0, 1)), 51.5, -0.1);
+  if (midnight.alt > -10) throw new Error(JSON.stringify(midnight));
 });
 
 const failed = results.filter(([ok]) => !ok);

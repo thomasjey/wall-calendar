@@ -37,7 +37,8 @@ class FrontendSource(unittest.TestCase):
 
     def test_no_external_urls(self):
         for path in frontend_files(include_tests=True):
-            text = path.read_text(encoding="utf-8")
+            # The SVG namespace is a name, never fetched.
+            text = path.read_text(encoding="utf-8").replace("'http://www.w3.org/2000/svg'", "")
             with self.subTest(file=path.name):
                 self.assertIsNone(re.search(r"(https?:)?//[a-z0-9.-]+\.[a-z]{2,}", text, re.IGNORECASE))
 
