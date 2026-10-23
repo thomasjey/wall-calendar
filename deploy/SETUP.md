@@ -4,6 +4,9 @@ Follows DESIGN.md §9. Work through it in order over SSH. Commands assume the
 repository is cloned to `/opt/fwcal` and run from there. Steps marked
 **(Phase 3)** need the Graph fetcher and can be skipped until it exists.
 
+The away-from-home service on Azure is separate and doesn't touch the Pi; it
+has its own guide, `AZURE.md`.
+
 ## 1. Operating system
 1. Flash **Raspberry Pi OS (64-bit)** with Raspberry Pi Imager. In the Imager settings:
    - set a username (the kiosk desktop user) and a strong password;
