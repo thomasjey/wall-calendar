@@ -1,6 +1,6 @@
 # wall-calendar — Design
 
-**Version:** 0.25 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1, R2, R3, R4, R6, R7 passed (§15.13); next: R5 (the iPad), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
+**Version:** 0.26 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1, R2, R3, R4, R6, R7 passed (§15.13); next: R5 (the iPad), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
 **Date:** 2026-10-04
 **Conventions:** decisions are ADRs (§13), unknowns are spikes (§12.3), and nothing personal goes in this repository.
 
@@ -755,6 +755,8 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | ADR-32 | **Two layers of infrastructure:** *foundation* (identities, Key Vault, storage, role assignments), deployed rarely by me; *app* (Function App, its settings, sign-in settings with the platform allowlist, code), deployed by the pipeline with Contributor on the resource group. The app registrations and their federated credentials are made by a one-time bootstrap script I run; the pipeline has no directory permissions |
 | ADR-33 | **Dev uses its own viewer account** with a test calendar of synthetic events (§17.6); until it exists, dev runs on mock data |
 
+| ADR-34 | **Built as (2026-10-22):** four user-assigned identities per environment (app: storage and reading the config; sign-in; sync; deploy), all created with their role assignments in the foundation. Role assignments on the two Key Vault secrets are per secret. **Enrolment** needs both the deploy switch `ENROLMENT_OPEN` (lifts the platform allowlist) and `enrolment_until` in the config (at most 30 minutes ahead); a newcomer sees only their own ID. **Workflow logs are public**, so every environment value (allowed IDs, client IDs, subscription, alert email) is a GitHub environment *secret*, masked in logs; parameters go to a file, never to the output. The cloud config also holds the **time zone** for the sync's day boundaries (Azure runs on UTC). The page and `/api/*` share one catch-all function; other sites may only *navigate* to pages (Fetch Metadata), never call `/api/*` |
+
 *Note on the two identities (ADR-26, ADR-27):* both are assigned to the same Function App, so any of its code can use either. Keeping them apart limits **which app registration trusts which identity**; it is not isolation between pieces of code.
 
 ## Appendix: Design history
@@ -765,6 +767,7 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | 0.2 | 2026-10-04 | Open questions answered: ADR-1 accepted; ADR-11 independence (§0) and personal details removed from this repo; ADR-12 display defaults and `show_notes`; §9.0 hardware recommendation; ADR-14 Inter font |
 | 0.3 | 2026-10-21 | Visual baseline approved from the interactive mockup (§10.1) |
 | 0.4 | 2026-10-21 | Phase 1 done (§12.5): stdlib-only, `unittest` instead of pytest, `--config` instead of an environment override, server hardening additions |
+| 0.26 | 2026-10-22 | ADR-34: how Phase 5 was built (identities, per-secret roles, two-switch enrolment, secrets-only workflow values, time zone, Fetch Metadata) |
 | 0.25 | 2026-10-22 | ADR-29 public repository with no personal references (pre-commit check); Phase 5 build choices ADR-30 to ADR-33 |
 | 0.24 | 2026-10-22 | ADR-28: two allowlists with different owners (platform list by the approved deploy, code list in Key Vault written only by me); fail closed; change alerts; drift check (§15.4, T30); §14 paging to other months recorded as a possible later feature; R4 passed (§15.13) |
 | 0.23 | 2026-10-22 | §15.13 spike results R1, R2, R3, R6, R7; ADR-26 web sign-in without a client secret; ADR-27 cloud sync with a managed identity instead of a Key Vault key, consent through an admin-only page (§15.6, T29, R10) |
