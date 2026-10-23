@@ -83,10 +83,12 @@ body.sky #bg > .stars, body.sky #bg > .orb, body.sky #bg > .hills { display: blo
 .sun.low .halo { stop-color: #ffb27a; }
 .sun.low .disc { fill: #ffd29a; }
 #bg > .orb.sun.low { width: calc(var(--u) * 22); height: calc(var(--u) * 22); }
-.moon .halo { stop-color: #dfe6ff; }
-.moon .glow { opacity: 0.35; }
-.moon .dark { fill: #2a3352; opacity: 0.55; }
 .moon .lit { fill: #f3f1e6; }
+/* The glow follows the lit shape (a crescent glows as a crescent); round only near full moon. */
+#bg > .orb.moon {
+  filter: drop-shadow(0 0 calc(var(--u) * 0.8) rgba(230, 236, 255, 0.6))
+    drop-shadow(0 0 calc(var(--u) * 2.6) rgba(210, 220, 255, 0.35));
+}
 #bg > .hills { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; height: 28vh; }
 .hill.h0 { fill: var(--hill-0, #121a2c); }
 .hill.h1 { fill: var(--hill-1, #0e1424); }

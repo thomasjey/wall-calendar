@@ -92,9 +92,9 @@ export function initSky() {
     glow('sun-glow', 0.3), svg('circle', { r: 2, class: 'glow', fill: 'url(#sun-glow)' }),
     svg('circle', { r: 0.62, class: 'disc' }));
   const lit = svg('path', { class: 'lit' });
-  const moon = svg('svg', { class: 'orb moon', viewBox: '-1.6 -1.6 3.2 3.2' },
-    glow('moon-glow', 0.62), svg('circle', { r: 1.6, class: 'glow', fill: 'url(#moon-glow)' }),
-    svg('circle', { r: 1, class: 'dark' }), lit);
+  // Only the lit part is drawn, and its glow (app.css) follows that shape: a
+  // crescent shows as a crescent, not as a full disc with a dark side.
+  const moon = svg('svg', { class: 'orb moon', viewBox: '-1.6 -1.6 3.2 3.2' }, lit);
   const hills = svg('svg', { class: 'hills', viewBox: '0 0 100 30', preserveAspectRatio: 'none' },
     ...ridges(ridgeRandom(20261023)).map((ys, i) => svg('path', { class: `hill h${i}`, d: ridgePath(ys) })));
   bg.append(stars, sun, moon, hills);  // back to front
