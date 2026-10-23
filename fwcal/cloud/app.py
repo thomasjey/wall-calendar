@@ -6,6 +6,7 @@ endpoint. Blocking calls run in worker threads so the event loop stays free
 App settings:
     FWCAL_KEY_VAULT_URL            https://<vault>.vault.azure.net
     FWCAL_BLOB_CONTAINER_URL       https://<account>.blob.core.windows.net/<container>
+    FWCAL_APP_IDENTITY_CLIENT_ID   the app identity (user-assigned): config read, blobs
     FWCAL_SYNC_CLIENT_ID           the cloud-sync app registration
     FWCAL_SYNC_IDENTITY_CLIENT_ID  the sync identity (user-assigned)
 Platform: WEBSITE_HOSTNAME, IDENTITY_ENDPOINT, IDENTITY_HEADER.
@@ -56,7 +57,7 @@ def _env(name: str) -> str:
 def build() -> Services:
     session = http_session()
     endpoint, header = _env("IDENTITY_ENDPOINT"), _env("IDENTITY_HEADER")
-    app_identity = ManagedIdentity(session, endpoint, header)  # system-assigned: config read, blobs
+    app_identity = ManagedIdentity(session, endpoint, header, _env("FWCAL_APP_IDENTITY_CLIENT_ID"))
     sync_identity = ManagedIdentity(session, endpoint, header, _env("FWCAL_SYNC_IDENTITY_CLIENT_ID"))
     vault_url = _env("FWCAL_KEY_VAULT_URL")
     config_vault = KeyVault(session, vault_url, app_identity)

@@ -127,3 +127,29 @@ class SettingsCache:
 
 class SettingsUnavailable(RuntimeError):
     pass
+
+
+def main(argv: list[str]) -> int:
+    """`python -m fwcal.cloud.settings <file>`: validates a cloud config before
+    it is uploaded (tools/azure/put_config.ps1). Prints counts, never IDs."""
+    import sys
+
+    if len(argv) != 1:
+        print("usage: python -m fwcal.cloud.settings <config.toml>", file=sys.stderr)
+        return 2
+    try:
+        with open(argv[0], encoding="utf-8") as f:
+            st = parse_settings(f.read())
+    except (OSError, ConfigError) as exc:
+        print(f"invalid: {exc}", file=sys.stderr)
+        return 1
+    a = st.access
+    print(f"valid: {len(st.config.calendars)} calendars, {len(a.allowed)} allowed, {len(a.admins)} admin(s), "
+          f"time zone {st.tz.key}, enrolment {'set' if a.enrolment_until else 'off'}")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main(sys.argv[1:]))

@@ -62,8 +62,8 @@ def _json(r, what: str) -> dict:
 
 
 class ManagedIdentity:
-    """Tokens from the Functions host's identity endpoint. `client_id` picks a
-    user-assigned identity; None is the app's own (system-assigned) identity."""
+    """Tokens from the Functions host's identity endpoint for the user-assigned
+    identity `client_id` (None would be a system-assigned identity, unused here)."""
 
     def __init__(self, session, endpoint: str, header: str, client_id: str | None = None,
                  clock=time.time) -> None:
