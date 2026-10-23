@@ -95,7 +95,7 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(session.requests, [])  # no Graph calls without a token
 
     def test_invalid_events_skipped(self):
-        bad = graph_event(2, start={"dateTime": "2026-10-22T16:00:00", "timeZone": "Pacific Standard Time"})
+        bad = graph_event(2, start={"dateTime": "2026-10-22T16:00:00", "timeZone": "Eastern Standard Time"})
         code, _, data = self.run_sync([self.cal("ID-SWIM", [graph_event(1), bad, "junk"]), self.cal("ID-HEALTH", [])])
         self.assertEqual(code, self.sync.OK)
         self.assertEqual(len(data["events"]), 1)

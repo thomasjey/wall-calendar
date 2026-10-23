@@ -263,7 +263,7 @@ test("the moon's lit side faces the sun, both hemispheres", () => {
     return Math.atan2(-x, s.alt - m.alt) / (Math.PI / 180);
   };
   for (const [iso, lat, lon, side] of [
-    ['2026-11-14T02:30:00Z', 47.6, -122.3, -1],  // Seattle: facing south, the sun is to the right
+    ['2026-11-14T17:00:00Z', 51.5, -0.1, -1],    // London: facing south, the sun is to the right
     ['2026-11-14T09:00:00Z', -33.9, 151.2, 1],   // Sydney: facing north, the sun is to the left
   ]) {
     const t = new Date(iso);

@@ -33,8 +33,8 @@ class Normalize(unittest.TestCase):
     def test_all_day_uses_dates_only(self):
         out = normalize_event(graph(
             isAllDay=True,
-            start={"dateTime": "2026-10-21T00:00:00.0000000", "timeZone": "Pacific Standard Time"},
-            end={"dateTime": "2026-10-24T00:00:00.0000000", "timeZone": "Pacific Standard Time"},
+            start={"dateTime": "2026-10-21T00:00:00.0000000", "timeZone": "Eastern Standard Time"},
+            end={"dateTime": "2026-10-24T00:00:00.0000000", "timeZone": "Eastern Standard Time"},
         ), "home", show_notes=True)
         self.assertEqual((out["allDay"], out["startDate"], out["endDate"]), (True, "2026-10-21", "2026-10-24"))
         self.assertNotIn("start", out)
@@ -49,7 +49,7 @@ class Normalize(unittest.TestCase):
 
     def test_timed_non_utc_refused(self):
         with self.assertRaises(InvalidEvent):
-            normalize_event(graph(start={"dateTime": "2026-10-21T17:15:00", "timeZone": "Pacific Standard Time"}),
+            normalize_event(graph(start={"dateTime": "2026-10-21T17:15:00", "timeZone": "Eastern Standard Time"}),
                             "home", show_notes=True)
 
     def test_end_before_start_clamped(self):
