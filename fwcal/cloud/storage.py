@@ -7,6 +7,8 @@ import hashlib
 import json
 import logging
 import threading
+import time
+from dataclasses import dataclass, replace
 
 from .. import store
 from .azure import AzureError, BlobContainer
@@ -35,39 +37,72 @@ class BlobEventStore:
         self._blobs.put(self._name, store.dumps(payload))
 
 
-class EventsCache:
-    """The page's /api/events body and ETag. Each call asks storage whether the
-    blob changed (a conditional GET); the body is re-validated only when it has."""
+@dataclass(frozen=True)
+class _Snapshot:
+    body: bytes
+    etag: str
+    blob_etag: str | None  # None: no blob seen (the page shows "no data")
+    checked: float  # when storage was last asked, on the cache's clock
 
-    def __init__(self, blobs: BlobContainer, name: str = EVENTS_BLOB) -> None:
+
+class EventsCache:
+    """The page's /api/events body and ETag, held as one immutable snapshot that
+    requests read without a lock. Storage is asked whether the blob changed (a
+    conditional GET) at most every `recheck` seconds per instance: until then
+    the snapshot is served as is, and when it's due one request checks while
+    the others keep serving the current snapshot (stale-while-revalidate).
+    Only the first request on a fresh instance waits for storage. A storage
+    failure keeps the last good snapshot and is retried after `recheck`.
+
+    Earlier this held a lock across every storage call, so under load each
+    request queued behind the slowest one ahead of it (load test, §17.6)."""
+
+    def __init__(self, blobs: BlobContainer, name: str = EVENTS_BLOB, *, recheck: float = 10.0,
+                 clock=time.monotonic) -> None:
         self._blobs, self._name = blobs, name
-        self._lock = threading.Lock()
-        self._blob_etag: str | None = None
-        self._body: bytes | None = None
-        self._etag = ""
+        self._recheck, self._clock = recheck, clock
+        self._snap: _Snapshot | None = None
+        self._first_load = threading.Lock()  # a fresh instance loads once; the others wait for it
+        self._claim = threading.Lock()  # guards only the flag below, never storage I/O
+        self._refreshing = False
 
     @staticmethod
-    def _encode(payload: dict) -> tuple[bytes, str]:
+    def _encode(payload: dict, blob_etag: str | None, checked: float) -> _Snapshot:
         body = store.dumps(payload)
-        return body, '"' + hashlib.sha256(body).hexdigest()[:32] + '"'
+        return _Snapshot(body, '"' + hashlib.sha256(body).hexdigest()[:32] + '"', blob_etag, checked)
 
     def get(self) -> tuple[bytes, str]:
-        with self._lock:
-            try:
-                data, blob_etag = self._blobs.get(self._name, self._blob_etag if self._body else None)
-                if data is None and blob_etag is not None and self._body is not None:
-                    return self._body, self._etag  # unchanged
-                if data is None:
-                    self._blob_etag, self._body = None, None
-                    return self._encode(NO_DATA)
-                self._body, self._etag = self._encode(store.loads(data))
-                self._blob_etag = blob_etag
-                return self._body, self._etag
-            except (AzureError, store.InvalidEventsFile) as exc:
-                log.warning("events unavailable: %s", type(exc).__name__)
-                if self._body is not None:
-                    return self._body, self._etag  # last good copy through a storage blip
-                return self._encode(NO_DATA)
+        snap = self._snap
+        if snap is None:
+            with self._first_load:
+                if self._snap is None:
+                    self._snap = self._load(None)
+                snap = self._snap
+        elif self._clock() - snap.checked >= self._recheck:
+            with self._claim:
+                mine = not self._refreshing
+                self._refreshing = True
+            if mine:  # anyone else meanwhile serves the snapshot they already have
+                try:
+                    self._snap = snap = self._load(snap)
+                finally:
+                    self._refreshing = False
+        return snap.body, snap.etag
+
+    def _load(self, prev: _Snapshot | None) -> _Snapshot:
+        now = self._clock()
+        try:
+            data, blob_etag = self._blobs.get(self._name, prev.blob_etag if prev else None)
+            if data is None and blob_etag is not None and prev is not None:
+                return replace(prev, checked=now)  # unchanged
+            if data is None:
+                return self._encode(NO_DATA, None, now)  # no blob
+            return self._encode(store.loads(data), blob_etag, now)
+        except (AzureError, store.InvalidEventsFile) as exc:
+            log.warning("events unavailable: %s", type(exc).__name__)
+            if prev is not None:
+                return replace(prev, checked=now)  # last good copy through a storage blip
+            return self._encode(NO_DATA, None, now)
 
 
 class ConsentStates:

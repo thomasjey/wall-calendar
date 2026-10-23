@@ -266,6 +266,57 @@ class AzureRestTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_one_retry_when_a_connection_dies(self):
+        # A kept-alive connection dropped while idle: the request gets no reply.
+        # A GET is retried once on a fresh connection; a POST, which may have
+        # been acted on, is not.
+        import http.server
+        import threading
+
+        import requests
+
+        from fwcal.netauth import http_session
+
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def _answer(self):
+                seen.append(self.command)
+                if len(seen) % 2 == 1:  # every other request: hang up without a reply
+                    self.close_connection = True
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            do_GET = do_POST = _answer
+
+            def log_message(self, *args):
+                pass
+
+        class Server(http.server.ThreadingHTTPServer):
+            def handle_error(self, request, client_address):
+                pass  # hang-ups are the point here
+
+        server = Server(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            session = http_session()
+            session.mount("http://", session.get_adapter("https://"))  # the same adapter, without TLS
+            self.assertEqual(session.get(base + "/x", timeout=5).content, b"ok")
+            self.assertEqual(seen, ["GET", "GET"])
+            with self.assertRaises(requests.ConnectionError):  # the third request: a hang-up
+                session.post(base + "/x", data=b"{}", timeout=5)
+            self.assertEqual(seen, ["GET", "GET", "POST"])
+            session.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
 class OAuthTest(unittest.TestCase):
@@ -487,7 +538,7 @@ class StorageAndTokensTest(unittest.TestCase):
         from fwcal.cloud.storage import BlobEventStore, EventsCache
 
         blobs = MemoryBlobs()
-        cache = EventsCache(blobs)
+        cache = EventsCache(blobs, recheck=0)  # ask storage on every call
         self.assertIn(b'"no_data"', cache.get()[0])
         BlobEventStore(blobs).save(payload())
         body, etag = cache.get()
@@ -498,6 +549,63 @@ class StorageAndTokensTest(unittest.TestCase):
         blobs.fail = False
         blobs.put("events.json", b'{"schema": 99}')
         self.assertEqual(cache.get(), (body, etag))  # an invalid blob never replaces good data
+
+    def test_events_cache_rechecks_storage_at_most_every_few_seconds(self):
+        from fwcal.cloud.storage import BlobEventStore, EventsCache
+
+        blobs, clock = MemoryBlobs(), [100.0]
+        calls = []
+        real_get = blobs.get
+        blobs.get = lambda name, etag=None: calls.append(etag) or real_get(name, etag)
+        BlobEventStore(blobs).save(payload())
+        cache = EventsCache(blobs, recheck=10, clock=lambda: clock[0])
+        first = cache.get()
+        for _ in range(50):
+            self.assertEqual(cache.get(), first)
+        self.assertEqual(len(calls), 1)  # fifty requests, one storage call
+        BlobEventStore(blobs).save(payload(generated="2026-10-22T18:03:00Z"))
+        clock[0] += 9.9
+        self.assertEqual(cache.get(), first)  # not due yet: still the snapshot
+        clock[0] += 0.2
+        second = cache.get()
+        self.assertNotEqual(second, first)  # due: storage asked, new data
+        self.assertEqual(calls[-1], '"1"')  # a conditional GET, with the blob ETag it had
+        clock[0] += 10
+        self.assertEqual(cache.get(), second)  # unchanged (a 304): same body and ETag
+        blobs.fail = True
+        clock[0] += 10
+        n = len(calls)
+        self.assertEqual(cache.get(), second)  # storage down: last good copy...
+        self.assertEqual(cache.get(), second)
+        self.assertEqual(len(calls), n + 1)  # ...and not asked again until the next recheck
+
+    def test_events_cache_one_check_at_a_time_the_rest_are_served(self):
+        import threading
+
+        from fwcal.cloud.storage import BlobEventStore, EventsCache
+
+        blobs, clock = MemoryBlobs(), [0.0]
+        BlobEventStore(blobs).save(payload())
+        cache = EventsCache(blobs, recheck=10, clock=lambda: clock[0])
+        first = cache.get()
+        entered, release = threading.Event(), threading.Event()
+        real_get = blobs.get
+
+        def slow_get(name, etag=None):  # storage hangs until released
+            entered.set()
+            release.wait(5)
+            return real_get(name, etag)
+
+        blobs.get = slow_get
+        clock[0] = 30
+        checker = threading.Thread(target=cache.get)
+        checker.start()
+        self.assertTrue(entered.wait(5))
+        served = [cache.get() for _ in range(20)]  # while the check hangs: answered at once, no waiting
+        self.assertEqual(served, [first] * 20)
+        release.set()
+        checker.join(5)
+        self.assertFalse(checker.is_alive())
 
     def test_consent_state_is_single_use(self):
         from fwcal.cloud.storage import ConsentStates
