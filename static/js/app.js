@@ -203,7 +203,8 @@ function initInput() {
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
     start = null;
-    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) navigate(dx < 0 ? 1 : -1);
+    // Swiping right goes forward in time, like the → key (DESIGN §10.2).
+    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) navigate(dx > 0 ? 1 : -1);
   });
 
   // Kiosk: no selection, callout or context menu (DESIGN §8.2).
