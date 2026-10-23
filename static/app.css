@@ -60,6 +60,37 @@ body.sky #bg {
   background: linear-gradient(to bottom, var(--sky-0, #0b1022) 0%, var(--sky-1, #121a33) 45%,
     var(--sky-2, #18213d) 78%, var(--sky-3, #1c2644) 100%);
 }
+/* The sky's scene (sky.js), only where there are no photos. */
+#bg > .stars, #bg > .orb, #bg > .hills { display: none; }
+body.sky #bg > .stars, body.sky #bg > .orb, body.sky #bg > .hills { display: block; }
+#bg > .stars { position: fixed; inset: 0; width: 100%; height: 100%; fill: #fff; }
+/* sky.js sets --x (-1 east .. 1 west) and --y (0 horizon .. 1 overhead): in
+   portrait the whole width, in a band just above the hills below the events. */
+#bg > .orb {
+  position: fixed;
+  left: calc(50% + var(--x, 0) * 44%);
+  top: calc(78% - var(--y, 0) * 28%);
+  width: calc(var(--u) * 16);
+  height: calc(var(--u) * 16);
+  transform: translate(-50%, -50%);
+}
+/* Glide between the minute's positions, but only once placed: a fresh page
+   shows the scene where it belongs straight away. */
+#bg.settled > .stars { transition: opacity 60s linear; }
+#bg.settled > .orb { transition: left 60s linear, top 60s linear, opacity 60s linear, width 60s linear, height 60s linear; }
+.sun .halo { stop-color: #fff4d6; }
+.sun .disc { fill: #fff6dc; }
+.sun.low .halo { stop-color: #ffb27a; }
+.sun.low .disc { fill: #ffd29a; }
+#bg > .orb.sun.low { width: calc(var(--u) * 22); height: calc(var(--u) * 22); }
+.moon .halo { stop-color: #dfe6ff; }
+.moon .glow { opacity: 0.35; }
+.moon .dark { fill: #2a3352; opacity: 0.55; }
+.moon .lit { fill: #f3f1e6; }
+#bg > .hills { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; height: 28vh; }
+.hill.h0 { fill: var(--hill-0, #121a2c); }
+.hill.h1 { fill: var(--hill-1, #0e1424); }
+.hill.h2 { fill: var(--hill-2, #0a0f1b); }
 #shade {
   position: fixed;
   inset: 0;
@@ -278,4 +309,9 @@ body.sky #shade { background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.2
   #foot { grid-column: 1; grid-row: 4; flex-direction: column; align-items: flex-start; }
   #status { margin-left: 0; text-align: left; }
   #panel { max-width: calc(var(--u) * 110); margin: 0 auto; }
+  /* The sky's sun and moon stay in the clock column, between the tabs and the legend. */
+  #bg > .orb { left: calc(19% + var(--x, 0) * 13%); top: calc(70% - var(--y, 0) * 16%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #bg.settled > .orb, #bg.settled > .stars { transition: none; }
 }

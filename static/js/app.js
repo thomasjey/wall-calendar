@@ -4,9 +4,10 @@ import { closeDetails, initDetails, openDetails } from './details.js';
 import { el, showFullTextOnHover } from './dom.js';
 import { initPhotos } from './photos.js';
 import { DEFAULTS, parseSettings } from './settings.js';
+import { initSky, paintSky } from './sky.js';
 import {
   addDays, bucket, clockParts, firstOfMonth, fmtTime, fromKey, inDailyRange, longDate,
-  monthGrid, skyColors, startOfDay, weekStartOf,
+  monthGrid, startOfDay, weekStartOf,
 } from './time.js';
 import * as views from './views.js';
 
@@ -355,11 +356,6 @@ function initInput() {
 
 // ----- clock tick -----
 
-// The sky backdrop (shown only when there are no photos) follows the real
-// sunrise and sunset when a location is configured.
-function paintSky(n) {
-  skyColors(n, state.settings.location).forEach((c, i) => document.body.style.setProperty(`--sky-${i}`, c));
-}
 
 function tick() {
   const n = now();
@@ -369,7 +365,7 @@ function tick() {
   state.lastMinute = minute;
   renderClock();
   document.body.classList.toggle('night', inDailyRange(n, state.settings.nightDim));
-  paintSky(n);
+  paintSky(n, state.settings.location);  // the backdrop where there are no photos
   if (dayChanged) state.focus = startOfDay(n);
   render({ keepScroll: !dayChanged }); // past/now highlighting and status age move with the clock
   if (n.getHours() === RELOAD_HOUR && n.getMinutes() === 0 && Date.now() - state.loadedAt > 3_600_000) {
@@ -411,6 +407,7 @@ async function main() {
   state.focus = startOfDay(now());
   initDetails();
   initInput();
+  initSky();  // before the first tick paints it
   renderClock();
   await refresh();
   if (!state.data) render();

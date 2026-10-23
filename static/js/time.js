@@ -213,7 +213,7 @@ function oklchToHex([L, C, h]) {
     .toString(16).padStart(2, '0')).join('');
 }
 
-function mixColor(a, b, t) {
+export function mixColor(a, b, t) {
   if (t <= 0) return a;
   if (t >= 1) return b;
   const [l1, c1, h1] = hexToOklch(a);
