@@ -14,6 +14,7 @@ const POLL_MS = 60_000;
 const STALE_MIN = 15;
 const OFFLINE_MIN = 60;
 const SWIPE_PX = 60;
+const DRAG_PX = 12;  // horizontal movement before the page starts to follow the finger
 const RELOAD_HOUR = 3;
 
 const state = {
@@ -155,7 +156,7 @@ function toast(text) {
   toast.timer = setTimeout(() => { t.hidden = true; }, 2000);
 }
 
-function navigate(dir) {
+function navigate(dir, fromX = 0) {
   const f = state.focus;
   let next;
   let range;
@@ -173,10 +174,44 @@ function navigate(dir) {
   }
   if (!overlapsWindow(range[0], range[1])) {
     toast(dir > 0 ? 'Not synced this far ahead' : 'Not synced this far back');
+    springBack(fromX);
     return;
   }
   state.focus = next;
-  render();
+  slide(dir, fromX);
+}
+
+// Paging motion (DESIGN §10.2): the page follows the finger, then the old page
+// leaves on the side it was pushed to and the new one arrives from the other.
+// Swiping left brings the next page, as in other calendars. Only transform and
+// opacity change, so it's cheap on the Pi; none of it with reduced motion.
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const page = () => $('view').firstElementChild;
+
+function slide(dir, fromX = 0) {
+  const old = page();
+  if (reduceMotion.matches || !old || !old.animate) { render(); return; }
+  const w = $('view').clientWidth;
+  old.style.transform = '';
+  const out = old.animate(
+    [{ transform: `translateX(${fromX}px)`, opacity: 1 }, { transform: `translateX(${-dir * w}px)`, opacity: 0 }],
+    { duration: 140, easing: 'ease-in', fill: 'forwards' });
+  out.onfinish = () => {
+    render();
+    page()?.animate(
+      [{ transform: `translateX(${dir * w * 0.35}px)`, opacity: 0 }, { transform: 'translateX(0)', opacity: 1 }],
+      { duration: 200, easing: 'ease-out' });
+  };
+}
+
+function springBack(fromX = 0) {
+  const p = page();
+  if (!p) return;
+  p.style.transform = '';
+  if (fromX && !reduceMotion.matches && p.animate) {
+    p.animate([{ transform: `translateX(${fromX}px)` }, { transform: 'translateX(0)' }],
+      { duration: 160, easing: 'ease-out' });
+  }
 }
 
 function goHome() {
@@ -196,15 +231,45 @@ function initInput() {
   }
   const view = $('view');
   showFullTextOnHover(view, '.title, .loc, .chip');
+  // Horizontal swipes page; vertical movement is left to scrolling (touch-action: pan-y).
   let start = null;
-  view.addEventListener('pointerdown', (e) => { start = { x: e.clientX, y: e.clientY }; });
-  view.addEventListener('pointerup', (e) => {
-    if (!start) return;
+  let dragging = false;
+  let swallowClick = false;
+  view.addEventListener('pointerdown', (e) => {
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    dragging = false;
+  });
+  view.addEventListener('pointermove', (e) => {
+    if (!start || e.pointerId !== start.id) return;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
-    start = null;
-    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) navigate(dx < 0 ? 1 : -1);
+    if (!dragging && Math.abs(dx) > DRAG_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+      dragging = true;
+      try { view.setPointerCapture(e.pointerId); } catch { /* pointer already gone: the drag still works */ }
+    }
+    if (dragging && !reduceMotion.matches && page()) page().style.transform = `translateX(${dx}px)`;
   });
+  view.addEventListener('pointerup', (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    const wasDragging = dragging;
+    start = null;
+    dragging = false;
+    swallowClick = wasDragging;  // a drag that ends on an event must not open it
+    if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) navigate(dx < 0 ? 1 : -1, wasDragging ? dx : 0);
+    else if (wasDragging) springBack(dx);
+  });
+  view.addEventListener('pointercancel', (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dx = dragging ? e.clientX - start.x : 0;
+    start = null;
+    dragging = false;
+    springBack(dx);
+  });
+  view.addEventListener('click', (e) => {
+    if (swallowClick) { swallowClick = false; e.stopPropagation(); e.preventDefault(); }
+  }, true);
 
   // Kiosk: no selection, callout or context menu (DESIGN §8.2).
   document.addEventListener('contextmenu', (e) => e.preventDefault());
