@@ -19,7 +19,7 @@ import re
 import sys
 
 GUID = re.compile(r"^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$")
-EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$", re.I)
+EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$", re.IGNORECASE)
 MAX_ALLOWED = 10
 SETTINGS = {"dev": {"alwaysReady": 0}, "prod": {"alwaysReady": 1}}
 

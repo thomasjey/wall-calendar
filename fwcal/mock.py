@@ -4,7 +4,7 @@ network connection."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from .config import Calendar, Config
 from .normalize import InvalidEvent, normalize_event
@@ -57,7 +57,7 @@ class _Builder:
     def _utc(day: date, hhmm: str, extra_min: int = 0) -> dict:
         h, m = (int(x) for x in hhmm.split(":"))
         local = datetime(day.year, day.month, day.day, h, m) + timedelta(minutes=extra_min)
-        utc = local.astimezone().astimezone(timezone.utc)
+        utc = local.astimezone().astimezone(UTC)
         return {"dateTime": utc.strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": "UTC"}
 
     def timed(self, cal: str, title: str, day: date, start: str, minutes: int,
@@ -107,7 +107,7 @@ def _graph_events(today: date, start: date, end: date) -> list[tuple[str, dict]]
         d += timedelta(days=1)
 
     t = today
-    day = lambda n: t + timedelta(days=n)  # noqa: E731
+    day = lambda n: t + timedelta(days=n)
     b.all_day("home", "Guests visiting", t, 3, "Guest room is ready.")
     # Health uses detail="titles": location and notes are dropped by normalisation.
     b.timed("health", "Dentist", t, "17:15", 45, "Main St Dental",
@@ -159,7 +159,7 @@ def build_payload(now_local: datetime, cfg: Config, status: str = "fresh") -> di
     """now_local: an aware local datetime."""
     today = now_local.date()
     start, end = sync_window(today, cfg.lookahead_days, cfg.display.week_start)
-    now_utc = now_local.astimezone(timezone.utc)
+    now_utc = now_local.astimezone(UTC)
     last = now_utc - {"fresh": timedelta(0), "stale": timedelta(minutes=25),
                       "offline": timedelta(minutes=75), "reauth": timedelta(minutes=40)}[status]
     detail = {c.key: c.detail for c in CALENDARS}

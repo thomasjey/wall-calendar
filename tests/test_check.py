@@ -32,8 +32,8 @@ class ProcNet(unittest.TestCase):
 
     def test_evaluate(self):
         tcp = check.parse_proc_net(TCP, udp=False) + check.parse_proc_net(TCP6, udp=False)
-        results = dict((text, level) for level, text in
-                       check.evaluate_listeners(tcp, check.parse_proc_net(UDP, udp=True), 8765))
+        results = {text: level for level, text in
+                   check.evaluate_listeners(tcp, check.parse_proc_net(UDP, udp=True), 8765)}
         self.assertEqual(results["tcp 127.0.0.1:8765 (web)"], OK)
         self.assertEqual(results["tcp 0.0.0.0:22 (ssh)"], OK)
         self.assertEqual(results["tcp 127.0.0.53:53: unexpected loopback listener"], WARN)

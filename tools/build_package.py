@@ -71,7 +71,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print("usage: build_package.py <output.zip>", file=sys.stderr)
         return 2
-    if shutil.which("git") and subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain"],
+    if shutil.which("git") and subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain"], check=False,
                                               capture_output=True, text=True).stdout.strip():
         print("warning: the working tree has uncommitted changes", file=sys.stderr)
     print(f"sha256 {build(Path(argv[0]))}  {argv[0]}")

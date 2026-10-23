@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from html.parser import HTMLParser
+from itertools import pairwise
 
 TITLE_MAX = 200
 LOCATION_MAX = 200
@@ -35,7 +36,7 @@ _BLOCK_TAGS = frozenset(
      "table", "tr", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "dl",
      "dt", "dd", "address", "figure", "figcaption", "main", "nav", "aside"}
 )
-_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)
+_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)
 
 # Format characters kept: ZWNJ and ZWJ (emoji sequences, some scripts).
 _KEEP_FORMAT = frozenset({"\u200c", "\u200d"})
@@ -44,12 +45,12 @@ _LINE_SEP = re.compile(r"[  \r\x0b\x0c\x85]")
 _HSPACE = re.compile(r"[^\S\n]+")
 _BLANK_LINES = re.compile(r"\n{3,}")
 _SEPARATOR_LINE = re.compile(r"^[_\-=~*]{10,}$")
-_URL = re.compile(r"\bhttps?://[^\s<>\"']+", re.I)
+_URL = re.compile(r"\bhttps?://[^\s<>\"']+", re.IGNORECASE)
 _URL_DISPLAY_MAX = 60
 _MEETING_MARKERS = re.compile(
     r"microsoft teams|join the meeting|join on your computer|meeting id:|"
     r"skype meeting|teams\.microsoft\.com",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -148,7 +149,7 @@ def _remove_meeting_boilerplate(s: str) -> str:
     seps = [i for i, line in enumerate(lines) if _SEPARATOR_LINE.match(line.strip())]
     drop: set[int] = set(seps)
     # A meeting block sits between two separator lines.
-    for a, b in zip(seps, seps[1:]):
+    for a, b in pairwise(seps):
         if _MEETING_MARKERS.search("\n".join(lines[a + 1 : b])):
             drop.update(range(a, b + 1))
     # A trailing block after the last separator (Teams often omits the closing one).
@@ -161,7 +162,7 @@ def _shorten_url(match: re.Match[str]) -> str:
     url = match.group(0)
     if len(url) <= _URL_DISPLAY_MAX:
         return url
-    host = re.sub(r"^https?://", "", url, flags=re.I).split("/", 1)[0]
+    host = re.sub(r"^https?://", "", url, flags=re.IGNORECASE).split("/", 1)[0]
     return host[:_URL_DISPLAY_MAX] + "/…"
 
 

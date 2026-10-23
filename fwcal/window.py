@@ -5,7 +5,7 @@ Dates here are local calendar dates. The window's end is exclusive.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 WEEK_STARTS = {"sunday": 6, "monday": 0}  # date.weekday() of the first column
 
@@ -40,7 +40,7 @@ def sync_window(today: date, lookahead_days: int, week_start: str) -> tuple[date
 def utc_query_range(start: date, end: date) -> tuple[str, str]:
     """The Graph calendarView range, widened by a day each side so no time zone
     offset can cut off an event. The browser filters by local date."""
-    lo = datetime(start.year, start.month, start.day, tzinfo=timezone.utc) - timedelta(days=1)
-    hi = datetime(end.year, end.month, end.day, tzinfo=timezone.utc) + timedelta(days=1)
+    lo = datetime(start.year, start.month, start.day, tzinfo=UTC) - timedelta(days=1)
+    hi = datetime(end.year, end.month, end.day, tzinfo=UTC) + timedelta(days=1)
     fmt = "%Y-%m-%dT%H:%M:%SZ"
     return lo.strftime(fmt), hi.strftime(fmt)

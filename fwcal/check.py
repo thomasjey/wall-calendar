@@ -6,11 +6,10 @@ check fails.
 
 from __future__ import annotations
 
-import os
 import socket
 import stat
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config as config_mod
@@ -139,10 +138,10 @@ def _data() -> list[tuple[str, str]]:
     results = [(OK, f"events: {len(data['events'])} events, {len(data['calendars'])} calendars")]
     if data["auth"] != "ok":
         results.append((WARN, f"events: auth is {data['auth']} (run `fwcal auth login`)"))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for c in data["calendars"]:
         last = c["lastSuccessAt"]
-        age = (now - datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() / 60 if last else None
+        age = (now - datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)).total_seconds() / 60 if last else None
         if age is None or age > STALE_MINUTES:
             results.append((WARN, f"calendar {c['key']}: last success {last or 'never'}"))
     return results

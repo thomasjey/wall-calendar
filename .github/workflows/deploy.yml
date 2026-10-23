@@ -1,0 +1,128 @@
+# Build once, then deploy (DESIGN §17.5, ADR-22, ADR-34):
+#   push to main  -> dev
+#   tag v*        -> prod, after approval in the protected `prod` environment
+#
+# Azure sign-in is OpenID Connect to the environment's deploy identity
+# (Contributor on its resource group only); there is no stored credential.
+# The logs of a public repository are public: every environment value is a
+# secret (masked), parameters go to a file, and Azure commands print nothing
+# beyond resource names.
+#
+# Nothing runs until the repository variable DEPLOY_ENABLED is "true" (set
+# after tools/azure/bootstrap.ps1 has prepared the environments).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write      # signing the build provenance
+      attestations: write
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned dependencies (hashes checked)
+        run: |
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements.txt
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-dev.txt
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r azure/requirements.txt
+      - name: Tests
+        run: python -m unittest discover -s tests
+      - name: Build the package
+        id: build
+        run: |
+          python tools/build_package.py dist/function.zip | tee build.txt
+          echo "sha256=$(cut -d' ' -f2 build.txt)" >> "$GITHUB_OUTPUT"
+      - name: SBOM (CycloneDX) of the runtime dependencies, with any known vulnerabilities
+        run: pip-audit --require-hashes --disable-pip -r azure/requirements.txt -f cyclonedx-json -o dist/sbom.cdx.json
+      - name: Sign the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/function.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: function
+          path: |
+            dist/function.zip
+            dist/sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }}
+    concurrency:
+      group: deploy-${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write      # OpenID Connect to Azure
+    env:
+      ENV_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: function
+          path: dist
+      - name: Check the package is the one that was built
+        run: echo "${{ needs.build.outputs.sha256 }}  dist/function.zip" | sha256sum --check --strict
+      - name: Parameters (refuses an empty or malformed allowlist)
+        env:
+          ALLOWED_OBJECT_IDS: ${{ secrets.ALLOWED_OBJECT_IDS }}
+          SIGNIN_CLIENT_ID: ${{ secrets.SIGNIN_CLIENT_ID }}
+          SYNC_CLIENT_ID: ${{ secrets.SYNC_CLIENT_ID }}
+          ADMIN_PRINCIPAL_ID: ${{ secrets.ADMIN_PRINCIPAL_ID }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          ENROLMENT_OPEN: ${{ secrets.ENROLMENT_OPEN }}
+        run: python3 tools/deploy_params.py "$ENV_NAME" "$RUNNER_TEMP/app.parameters.json"
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Preview the infrastructure change (what-if)
+        run: |
+          az deployment group what-if --resource-group "rg-wallcal-$ENV_NAME" --template-file infra/app.bicep \
+            --parameters "@$RUNNER_TEMP/app.parameters.json" --result-format ResourceIdOnly --no-pretty-print \
+            --query "changes[].{change: changeType, resource: resourceId}" -o table
+      - name: Deploy the infrastructure
+        run: |
+          az deployment group create --resource-group "rg-wallcal-$ENV_NAME" --name "app-${GITHUB_RUN_ID}" \
+            --template-file infra/app.bicep --parameters "@$RUNNER_TEMP/app.parameters.json" --output none
+          rm -f "$RUNNER_TEMP/app.parameters.json"
+      - name: Deploy the code
+        run: |
+          app=$(az functionapp list --resource-group "rg-wallcal-$ENV_NAME" --query "[0].name" -o tsv)
+          echo "::add-mask::$app"
+          az functionapp deployment source config-zip --resource-group "rg-wallcal-$ENV_NAME" --name "$app" \
+            --src dist/function.zip --output none
+          echo "APP_HOST=$app.azurewebsites.net" >> "$GITHUB_ENV"
+      - name: Post-deploy checks (DESIGN §17.6)
+        run: |
+          echo "::add-mask::$APP_HOST"
+          # Anonymous requests never reach our code: a sign-in redirect or 401.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "https://$APP_HOST/api/events")
+          case "$code" in 302|401) echo "anonymous request refused ($code)";; *) echo "unexpected $code"; exit 1;; esac
+          # TLS 1.2 is refused (TLS 1.3 minimum).
+          if curl -s -o /dev/null --max-time 30 --tls-max 1.2 "https://$APP_HOST/"; then echo "TLS 1.2 accepted"; exit 1; fi
+          echo "TLS 1.2 refused"
