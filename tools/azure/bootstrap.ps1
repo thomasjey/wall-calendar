@@ -88,7 +88,11 @@ if ($FirstRun) {
 }
 
 # --- 1. Foundation ---------------------------------------------------------
-$params = Write-TempJson @{ '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'; contentVersion = '1.0.0.0'; parameters = @{ env = @{ value = $Env }; adminPrincipalId = @{ value = $admin }; githubOidcRepo = @{ value = $oidcRepo }; seedSecrets = @{ value = [bool]$FirstRun } } }
+# The drift check's read access to the site needs the site: on a new environment
+# it is granted when this runs again after the first deploy.
+$siteExists = @(Invoke-Az functionapp list --resource-group $rg --query '[].name' -o tsv | Where-Object { $_ }).Count -gt 0
+if (-not $siteExists) { Write-Output 'No Function App yet: run this again after the first deploy, for the drift check.' }
+$params = Write-TempJson @{ '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'; contentVersion = '1.0.0.0'; parameters = @{ env = @{ value = $Env }; adminPrincipalId = @{ value = $admin }; githubOidcRepo = @{ value = $oidcRepo }; seedSecrets = @{ value = [bool]$FirstRun }; siteExists = @{ value = $siteExists } } }
 try {
     Invoke-Az deployment group what-if --resource-group $rg --template-file "$root\infra\foundation.bicep" --parameters "@$params" --result-format ResourceIdOnly
     Confirm-Step "Deploy the foundation for ${Env}?"

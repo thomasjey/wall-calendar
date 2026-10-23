@@ -475,6 +475,110 @@ class PrincipalTest(unittest.TestCase):
         self.assertNotIn(OID_A, p.Principal(OID_A, CONSUMER).log_id())
 
 
+SITE_ID = ("/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test"
+           "/providers/Microsoft.Web/sites/app-test")
+
+
+def auth_settings(identities=(OID_A, OID_B), **over):
+    """authsettingsV2 as infra/app.bicep sets it; `over` replaces top-level parts."""
+    props = {
+        "platform": {"enabled": True},
+        "globalValidation": {"requireAuthentication": True, "unauthenticatedClientAction": "RedirectToLoginPage"},
+        "identityProviders": {"azureActiveDirectory": {
+            "enabled": True,
+            "registration": {"openIdIssuer": f"https://login.microsoftonline.com/{CONSUMER}/v2.0"},
+            "validation": {"defaultAuthorizationPolicy": {
+                "allowedPrincipals": {"identities": list(identities)} if identities is not None else {}}},
+        }},
+        "login": {"tokenStore": {"enabled": False}},
+    }
+    props.update(over)
+    return {"properties": props}
+
+
+@unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
+class DriftTest(unittest.TestCase):
+    def setUp(self):
+        from fwcal.cloud import drift
+
+        self.d = drift
+        self.code = frozenset({OID_A, OID_B})
+
+    def test_lists_match_and_settings_hold(self):
+        self.assertEqual(self.d.problems(auth_settings(), self.code, CONSUMER), [])
+        upper = auth_settings(identities=(OID_A.upper(), OID_B))
+        self.assertEqual(self.d.problems(upper, self.code, CONSUMER), [])
+
+    def test_each_kind_of_drift_is_found_and_names_no_ids(self):
+        aad = auth_settings()["properties"]["identityProviders"]
+        off = {"azureActiveDirectory": {**aad["azureActiveDirectory"], "enabled": False}}
+        wrong_issuer = {"azureActiveDirectory": {**aad["azureActiveDirectory"],
+                                                 "registration": {"openIdIssuer": "https://sts.windows.net/x/"}}}
+        cases = {
+            "only on the platform": (auth_settings(identities=(OID_A, OID_B, OID_X)), CONSUMER),
+            "only on the code": (auth_settings(identities=(OID_A,)), CONSUMER),
+            "empty": (auth_settings(identities=None), CONSUMER),
+            "authentication is off": (auth_settings(platform={"enabled": False}), CONSUMER),
+            "not required": (auth_settings(globalValidation={"requireAuthentication": False}), CONSUMER),
+            "anonymous": (auth_settings(globalValidation={"requireAuthentication": True,
+                                                          "unauthenticatedClientAction": "AllowAnonymous"}), CONSUMER),
+            "Microsoft sign-in is off": (auth_settings(identityProviders=off), CONSUMER),
+            "issuer": (auth_settings(identityProviders=wrong_issuer), CONSUMER),
+            "allowed tenants": (auth_settings(), f"{CONSUMER},common"),
+            "token store": (auth_settings(login={"tokenStore": {"enabled": True}}), CONSUMER),
+            "could not be read": ({}, CONSUMER),
+        }
+        for words, (auth, tenants) in cases.items():
+            with self.subTest(words=words):
+                found = self.d.problems(auth, self.code, tenants)
+                self.assertTrue(any(words in f for f in found), found)
+                for oid in (OID_A, OID_B, OID_X):
+                    self.assertFalse(any(oid in f or oid.upper() in f for f in found), found)
+
+    def test_site_id_and_arm_get_guards(self):
+        from fwcal.cloud import azure
+
+        self.assertTrue(self.d.auth_settings_path(SITE_ID).endswith("/config/authsettingsV2"))
+        for bad in ("", "/subscriptions/x", SITE_ID + "/../other", "https://management.azure.com" + SITE_ID):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.d.auth_settings_path(bad)
+        http = FakeHTTP([("GET", lambda u: u.startswith("https://management.azure.com/subscriptions/"),
+                          FakeResponse(200, auth_settings()))])
+        data = azure.arm_get(http, FakeIdentity("app"), self.d.auth_settings_path(SITE_ID), self.d.AUTH_SETTINGS_API)
+        self.assertEqual(data, auth_settings())
+        method, url, kw = http.calls[0]
+        self.assertEqual(method, "GET")
+        self.assertEqual(url, f"https://management.azure.com{SITE_ID}/config/authsettingsV2?api-version=2024-04-01")
+        self.assertEqual(kw["headers"]["Authorization"], f"Bearer tok-app-{azure.ARM}")
+        self.assertFalse(kw["allow_redirects"])
+        with self.assertRaises(azure.AzureError) as cm:
+            azure.arm_get(FakeHTTP([("GET", lambda u: True, FakeResponse(403, {}))]), FakeIdentity(),
+                          self.d.auth_settings_path(SITE_ID), "2024-04-01")
+        self.assertEqual(cm.exception.status, 403)
+        for path, api in (("/a/../b", "2024-04-01"), ("/x", "2024-04-01"), (SITE_ID, "latest")):
+            with self.subTest(path=path, api=api), self.assertRaises(azure.AzureError):
+                azure.arm_get(http, FakeIdentity(), path, api)
+
+    def test_run_drift_end_to_end(self):
+        import os
+        from unittest import mock
+
+        from fwcal.cloud import app
+
+        platform = {"auth": auth_settings()}
+        http = FakeHTTP([("GET", lambda u: "authsettingsV2" in u, lambda m, u, kw: FakeResponse(200, platform["auth"]))])
+        services = app.Services(web=None, settings=None, events_store=None, tokens=None, session=http,
+                                app_identity=FakeIdentity("app"), config_text=lambda: CONFIG_TOML)
+        env = {"FWCAL_SITE_ID": SITE_ID, "WEBSITE_AUTH_AAD_ALLOWED_TENANTS": CONSUMER}
+        with mock.patch.object(app, "_services", services), mock.patch.dict(os.environ, env):
+            with self.assertLogs("fwcal", "INFO") as logs:
+                self.assertEqual(app.run_drift(), 2)
+            self.assertIn("drift check passed: 2 ID(s)", logs.output[-1])
+            platform["auth"] = auth_settings(identities=(OID_A, OID_B, OID_X))
+            with self.assertLogs("fwcal", "ERROR"), self.assertRaises(self.d.DriftFound):
+                app.run_drift()
+
+
 class MemoryBlobs:
     def __init__(self):
         self.data, self.n = {}, 0
@@ -888,7 +992,7 @@ class EntryPointTest(unittest.TestCase):
 
         tree = ast.parse((REPO_ROOT / "azure" / "function_app.py").read_text(encoding="utf-8"))
         decorated = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.decorator_list]
-        self.assertEqual(sorted(n.name for n in decorated), ["sync", "web"])
+        self.assertEqual(sorted(n.name for n in decorated), ["drift", "sync", "web"])
         self.assertFalse([n.name for n in decorated if isinstance(n, ast.AsyncFunctionDef)])
 
 

@@ -22,6 +22,9 @@ param githubOidcRepo string
 
 param seedSecrets bool = false
 
+@description('Whether the Function App exists yet (bootstrap.ps1 checks). The drift check\'s read access to the site can only be granted once it does; on a new environment, run the bootstrap again after the first deploy.')
+param siteExists bool = false
+
 var suffix = take(uniqueString(resourceGroup().id), 6)
 var functionAppName = 'wallcal-${env}-${suffix}'
 var isProd = env == 'prod'
@@ -31,6 +34,7 @@ var roles = {
   blobDataOwner: 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
   secretsUser: '4633458b-17de-408a-b874-0445c86b69e6'
   secretsOfficer: 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
+  reader: 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
 }
 
 // --- Identities: one job each (ADR-26, ADR-27, ADR-32) ---------------------
@@ -217,6 +221,21 @@ resource syncRotatesToken 'Microsoft.Authorization/roleAssignments@2022-04-01' =
     principalType: 'ServicePrincipal'
   }
   dependsOn: [tokenSeed]
+}
+
+// The drift check (DESIGN §15.4) reads the site's sign-in settings: Reader on this one site, nothing else.
+resource site 'Microsoft.Web/sites@2024-04-01' existing = if (siteExists) {
+  name: functionAppName
+}
+
+resource appReadsSite 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (siteExists) {
+  scope: site
+  name: guid(resourceId('Microsoft.Web/sites', functionAppName), appIdentity.id, roles.reader)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.reader)
+    principalId: appIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 resource deployContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
