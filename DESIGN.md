@@ -1,6 +1,6 @@
 # wall-calendar — Design
 
-**Version:** 0.28 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1–R4, R6, R7, R9 passed (§15.13); **dev deployed and verified 2026-10-22**; **prod live 2026-10-22, R10 passed**; next: R5 (the iPad), R8 (always-ready cost), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
+**Version:** 0.29 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1–R4, R6, R7, R9 passed (§15.13); **dev deployed and verified 2026-10-22**; **prod live 2026-10-22, R10 passed**; next: R5 (the iPad), R8 (always-ready cost), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
 **Date:** 2026-10-04
 **Conventions:** decisions are ADRs (§13), unknowns are spikes (§12.3), and nothing personal goes in this repository.
 
@@ -445,6 +445,11 @@ Run from the laptop with `spikes/s1_auth.py` (not committed): token in memory on
 3. **Paging to other months (possible later feature, not in scope).** The page shows only what the synced copy holds (ADR-8: the month grid or the past week, through `lookahead_days` ahead, 35 by default, at most 120). Fetching from Graph when someone pages would give up what the separation of sync and display buys: a fast page that works through outages, a Pi web service with no network at all, and no Graph token on Azure's request path. If paging is wanted:
    - **Step 1, a wider copy refreshed in tiers:** the current and next month every 5 minutes as now; a far range (for example 3 months back to 12 ahead) hourly. Paging inside it is instant and works offline. Watch daily recurring series, which multiply over a year; the existing page and event caps (§5) bound them.
    - **Step 2, further out on request, still through the sync:** paging past the far range shows "loading…" and leaves a small request (a month); the sync fetches it within seconds and adds it to the copy. The page never calls Graph. On the Pi the request is a local file that wakes the sync service (systemd path activation), so the web service keeps no network access.
+4. **Non-blocking I/O in the cloud (planned improvement, decided 2026-10-22).** The cloud code calls Key Vault, storage, Microsoft sign-in and Graph with a blocking HTTP library on the runtime's thread pool (ADR-25). That's correct and has ample headroom (up to 32 threads per instance against 8 concurrent requests), but production services usually use non-blocking I/O, so each instance spends no thread on waiting. To do it right:
+   - **An async HTTP client** (for example `httpx` or `aiohttp`), added to `azure/requirements.in` with hashes and the same checks as `requests` (TLS 1.2 minimum, no redirects, size caps, timeouts).
+   - **One sync implementation for both the Pi and the cloud:** an async core with a thin blocking wrapper for the Pi, rather than two copies.
+   - **Log lines must keep their invocation:** with `async` functions, the Python 3.13 runtime (1.3.0) doesn't mark the invocation for the logging path; that's why ADR-25 moved to plain functions. Re-check on a newer runtime before switching; until then this waits.
+   - **Measured, not assumed:** the load tests (§17.6) compare both under the same concurrency before and after.
 
 ## 15. Viewing away from home through Azure (Phase 5)
 
@@ -770,6 +775,7 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | 0.2 | 2026-10-04 | Open questions answered: ADR-1 accepted; ADR-11 independence (§0) and personal details removed from this repo; ADR-12 display defaults and `show_notes`; §9.0 hardware recommendation; ADR-14 Inter font |
 | 0.3 | 2026-10-21 | Visual baseline approved from the interactive mockup (§10.1) |
 | 0.4 | 2026-10-21 | Phase 1 done (§12.5): stdlib-only, `unittest` instead of pytest, `--config` instead of an environment override, server hardening additions |
+| 0.29 | 2026-10-22 | ADR-25 amended (plain functions on the runtime's thread pool); non-blocking I/O recorded as a planned improvement (§14) |
 | 0.28 | 2026-10-22 | Prod live; R10 passed in prod, ADR-27 confirmed (§15.13) |
 | 0.27 | 2026-10-22 | Dev deployed and verified; R9 passed; three Flex and GitHub details recorded (§15.13) |
 | 0.26 | 2026-10-22 | ADR-34: how Phase 5 was built (identities, per-secret roles, two-switch enrolment, secrets-only workflow values, time zone, Fetch Metadata) |
