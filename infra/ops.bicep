@@ -1,6 +1,7 @@
 // Cost controls (DESIGN §17.8, ADR-24): the $10 monthly budget with email
 // alerts, and a kill switch that stops the dev and prod Function Apps when
-// actual cost reaches 100%. Deployed once, by the administrator, at
+// actual cost reaches 100%, or within minutes when prod is flooded with
+// requests (the budget only sees costs hours later). Deployed once, by the administrator, at
 // subscription scope (tools/azure/bootstrap.ps1 -Ops). The wall at home is
 // unaffected by the kill switch; restarting is a manual step (deploy/AZURE.md).
 
@@ -18,6 +19,9 @@ param startDate string = '${utcNow('yyyy-MM')}-01'
 
 param environments array = ['dev', 'prod']
 
+@description('Executions in 15 minutes that count as a flood: about 250 times the busiest normal window.')
+param floodThreshold int = 10000
+
 var appResourceGroups = [for e in environments: 'rg-wallcal-${e}']
 var siteIds = [for e in environments: '${subscription().id}/resourceGroups/rg-wallcal-${e}/providers/Microsoft.Web/sites/wallcal-${e}-${take(uniqueString('${subscription().id}/resourceGroups/rg-wallcal-${e}'), 6)}']
 
@@ -33,6 +37,9 @@ module ops 'modules/ops-resources.bicep' = {
     location: location
     alertEmail: alertEmail
     siteIds: siteIds
+    // Prod stops itself on a flood; dev only emails, since load tests there are expected.
+    floodWatch: [for (e, i) in environments: { env: e, siteId: siteIds[i], stop: e == 'prod' }]
+    floodThreshold: floodThreshold
   }
 }
 

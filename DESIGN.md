@@ -731,21 +731,22 @@ With both off (the default), protection comes from the sign-in and allowlist lay
 - **Application Insights** (workspace-based) with the OpenTelemetry distro; sampling on; daily data cap set so logging can't exceed the budget.
 - **Privacy-safe telemetry:** request paths, status codes, durations, dependency calls, sync counts; **never** event content, names or account IDs in logs (a hashed principal for correlation at most).
 - **Dashboards:** availability, p95 latency, error rate, sync freshness, instance count, cost.
-- **Alerts** (email): failed syncs for 30 minutes; error rate above 5%; p95 latency above target for 15 minutes; Key Vault access by an unexpected identity; request volume far above normal; budget thresholds.
+- **Alerts** (email): failed syncs for 30 minutes; error rate above 5%; p95 latency above target for 15 minutes; Key Vault access by an unexpected identity; request volume far above normal (the flood brake, §17.8); budget thresholds.
 
 ### 17.8 Cost controls
 - **Budget $10/month** on the `wall-calendar` subscription (both environments); email alerts at 50%, 80% and 100% of actual and 100% of forecast.
-- **Kill switch at 100% of actual ($10):** the budget's action group runs an automation that stops the **prod and dev** Function Apps. The wall at home is unaffected; restarting is a documented manual step.
+- **Kill switch at 100% of actual ($10):** the budget's action group runs an automation that stops the **prod and dev** Function Apps. The wall at home is unaffected; restarting is a documented manual step. Budgets see costs hours (sometimes a day) late, so this is a backstop, not a brake.
+- **Flood brake (2026-10-23):** metric alerts on the platform's own execution counts trip the same kill switch within about 15–20 minutes: more than 10,000 executions in 15 minutes in prod, on-demand or always-ready (normal use is at most about 45; the instance cap doesn't hold, §17.3, so cost isn't bounded by instance count). Dev's alert only emails, since load tests there are expected. The counts come from the platform, not Application Insights, so its daily cap can't blind the brake, and the rules live in the ops deployment, so the deploy pipeline can't disable them. *Not deployed until 2026-10-23: the ops deployment (`bootstrap.ps1 -Ops`) had never been run, so neither the kill switch nor the $10 budget existed; a manually created $5 budget sent emails only.*
 - **Application Insights daily cap** so telemetry can't run away.
 
 | Item | Monthly |
 |---|---|
 | Always-ready instance (prod, 512 MB, Flex baseline rate about $0.000004/GB-s; to confirm, R8) | ~$5.20 |
-| Alert rules (2, observed rate) | ~$1.00 |
+| Alert rules (2 observed, plus 3 flood rules at $0.10) | ~$1.30 |
 | Key Vault, storage, Application Insights (under free allowances) | ~$0.30 |
 | On-demand executions (within the free grant) | $0 |
 | Dev environment (scale to zero) | ~$0 |
-| **Total** | **~$6.50**, budget and kill switch at $10 |
+| **Total** | **~$6.80**, budget and kill switch at $10 |
 
 ### 17.9 Service level objectives
 | SLO | Target |

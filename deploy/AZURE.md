@@ -75,9 +75,9 @@ Both owners act on purpose (ADR-28); an empty list never opens anything.
 
 ## Operations
 
-- **Kill switch fired:** the budget reached $10 and both Function Apps were stopped. Find the cause (Cost analysis, request volume), then `az functionapp start -g rg-wallcal-<env> -n <app>`.
+- **Kill switch fired:** the budget reached $10, or prod ran more than 10,000 executions in 15 minutes (the flood brake), and both Function Apps were stopped. Find the cause (Cost analysis; request volume and who sent it in Application Insights), revoke the account if it's misuse (below), then `az functionapp start -g rg-wallcal-<env> -n <app>`.
 - **Sync alert ("no successful sync for 30 minutes"):** `/api/health` shows the state. `reauth_required` means the consent was revoked or expired: run `/manage/consent` again.
 - **Revoking a person:** remove their ID from `allowed` (takes effect within 5 minutes) and from `ALLOWED_OBJECT_IDS`, then redeploy.
 - **Revoking everything:** stop the Function Apps; remove the viewer's consent to the sync app at account.live.com/consent/Manage; delete the app registrations.
 - **Credentials:** there are no keys or client secrets to rotate. The refresh token rotates on every sync; each old version is disabled.
-- **Alerts:** any change to the Function App's settings (including the allowlist); a Key Vault secret used by any other identity; no successful sync for 30 minutes; more than 5 server errors in 15 minutes; budget at 50%, 80%, 100% and forecast 100%.
+- **Alerts:** any change to the Function App's settings (including the allowlist); a Key Vault secret used by any other identity; no successful sync for 30 minutes; more than 5 server errors in 15 minutes; more than 10,000 executions in 15 minutes (prod: stops the apps; dev: email); budget at 50%, 80%, 100% and forecast 100%.
