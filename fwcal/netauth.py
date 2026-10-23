@@ -7,6 +7,7 @@ import ssl
 
 import requests
 from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 # Microsoft omits offline_access from the granted list for personal accounts.
 ALLOWED_GRANTED = frozenset({"Calendars.Read", "openid", "profile", "offline_access"})
@@ -30,9 +31,18 @@ class TLS12Adapter(HTTPAdapter):
         return super().init_poolmanager(*args, **kwargs)
 
 
+# One immediate retry when a connection fails: connecting (nothing was sent, so
+# safe for any method), or for a GET, a reply that never came. A kept-alive
+# connection can be dropped silently while idle (Azure's outbound connections
+# after about 4 minutes); the retry opens a fresh one. Status codes are never
+# retried here (Graph handles 429 and 503 itself).
+RETRY = Retry(total=1, connect=1, read=1, redirect=0, status=0, other=0, allowed_methods=frozenset({"GET"}),
+              backoff_factor=0, raise_on_status=False, respect_retry_after_header=False)
+
+
 def http_session() -> requests.Session:
     s = requests.Session()
-    s.mount("https://", TLS12Adapter())
+    s.mount("https://", TLS12Adapter(max_retries=RETRY))
     s.trust_env = False  # no proxies or netrc credentials from the environment
     return s
 
