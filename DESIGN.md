@@ -676,7 +676,7 @@ Each environment has its **own** Function App, storage, Key Vault, managed ident
 - **Scale-out: up to 4 instances** (was 1). A flood or a busy moment no longer takes the page down; cost stays bounded by the kill switch (§17.8).
 - **Per-instance HTTP concurrency: set from load tests** (start at 8; R1 showed the Python default of 1 stalls a capped app). R7: with 8 and up to 4 instances, the sign-in layer answered up to ~350 anonymous requests/s with no timeouts (§15.13).
 - **One always-ready instance in prod** (no cold start for anyone). 512 MB.
-- **Async handlers** for all HTTP functions; no blocking I/O on the request path.
+- **No blocking on the runtime's event loop:** the functions are plain (not `async`), so the Python runtime runs each on its own thread pool. *(Changed 2026-10-22: with `async` functions and our own worker threads, the Python 3.13 runtime didn't tie the threads to their invocations, and none of the code's log lines reached Application Insights.)*
 - **Timeouts:** `host.json` `functionTimeout` 30 s for HTTP-serving functions, 5 minutes for the sync; explicit connect/read timeouts on every outbound call (Graph, Key Vault, storage); the platform's front end ends any HTTP request after about 230 s.
 - **Health endpoint** (`/api/health`, behind sign-in like everything else) reporting sync age and dependency status, without event content.
 - **Zone redundancy: off** (switch). It needs at least two always-ready instances, beyond this budget.
@@ -751,7 +751,7 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | ADR-22 | Build and run the away-from-home service with production practices: Bicep, dev and prod, OIDC CI/CD with approvals, observability, SLOs, load and failure tests, runbooks |
 | ADR-23 | Paid components are Bicep switches: scale-out to 4 **on**; one always-ready instance in prod **on**; Front Door + WAF **off**; private networking **off**; zone redundancy **off** |
 | ADR-24 | Budget $10/month with a kill switch that stops both Function Apps at 100% |
-| ADR-25 | Python with async handlers stays the implementation language; per-instance concurrency and instance limits come from load tests |
+| ADR-25 | Python stays the implementation language; functions are plain and run on the runtime's thread pool (*amended 2026-10-22*, was async handlers); per-instance concurrency and instance limits come from load tests |
 | ADR-29 | The repository is **public**, started fresh with no references to the people who use it; enforced by the pre-commit check (§17.5) |
 | ADR-30 | **No MSAL in the cloud:** the cloud code makes three plain OAuth calls (refresh, consent code redemption, managed-identity assertion). Its runtime dependencies are `azure-functions` and `requests` only, pinned with hashes. The Pi and laptop keep MSAL |
 | ADR-31 | **Cloud config in Key Vault, written only by me:** calendars (Graph IDs, names, colours, detail levels), display settings, the code allowlist and the admin ID, as one TOML secret. Changing a detail level is as sensitive as changing the allowlist, so it gets the same protection (ADR-28). Nothing personal is in the repository |
