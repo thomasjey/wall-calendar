@@ -258,7 +258,7 @@ resource syncStale 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' =
     criteria: {
       allOf: [
         {
-          query: 'traces | where message == "sync finished with code 0" | summarize ok = count()'
+          query: 'traces | where message in ("sync finished with code 0", "sync skipped: no calendars configured") | summarize ok = count()'
           timeAggregation: 'Total'
           metricMeasureColumn: 'ok'
           operator: 'LessThan'

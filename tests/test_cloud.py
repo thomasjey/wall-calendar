@@ -611,6 +611,27 @@ class ConsentTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
+class RunSyncTest(unittest.TestCase):
+    def test_no_calendars_is_a_deliberate_skip(self):
+        from fwcal.cloud import app
+        from fwcal.cloud.settings import SettingsCache
+
+        no_calendars = CONFIG_TOML.split("[[calendars]]")[0] + "[access]" + CONFIG_TOML.split("[access]")[1]
+
+        class Services:
+            settings = SettingsCache(lambda: no_calendars)
+            events_store = tokens = session = None
+
+        orig, app._services = app._services, Services()
+        try:
+            with self.assertLogs("fwcal.cloud", "INFO") as logs:
+                self.assertEqual(app.run_sync(), 0)
+        finally:
+            app._services = orig
+        self.assertIn("sync skipped: no calendars configured", logs.output[0])
+
+
+@unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
 class NoMsalTest(unittest.TestCase):
     def test_cloud_never_imports_msal(self):
         # ADR-30: a fresh interpreter loads the whole cloud package and the sync.

@@ -92,6 +92,10 @@ async def handle(req: Request) -> Response:
 def run_sync() -> int:
     s = services()
     settings = s.settings.get()
+    if not settings.config.calendars:
+        # A deliberate state (dev before a test calendar exists), not a failure.
+        log.info("sync skipped: no calendars configured")
+        return sync.OK
     code = sync.run(settings.config, session=s.session, token_fn=s.tokens, events=s.events_store,
                     now=datetime.now(settings.tz))
     log.info("sync finished with code %d", code)
