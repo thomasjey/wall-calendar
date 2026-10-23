@@ -9,7 +9,8 @@ App settings:
     FWCAL_APP_IDENTITY_CLIENT_ID   the app identity (user-assigned): config read, blobs
     FWCAL_SYNC_CLIENT_ID           the cloud-sync app registration
     FWCAL_SYNC_IDENTITY_CLIENT_ID  the sync identity (user-assigned)
-Platform: WEBSITE_HOSTNAME, IDENTITY_ENDPOINT, IDENTITY_HEADER.
+    FWCAL_SITE_ID                  this Function App's resource ID (the drift check)
+Platform: WEBSITE_HOSTNAME, IDENTITY_ENDPOINT, IDENTITY_HEADER, WEBSITE_AUTH_AAD_ALLOWED_TENANTS.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -25,9 +27,10 @@ from typing import ClassVar
 from .. import sync
 from ..netauth import http_session
 from ..server import SECURITY_HEADERS, load_static
-from .azure import BlobContainer, KeyVault, ManagedIdentity
+from . import drift
+from .azure import BlobContainer, KeyVault, ManagedIdentity, arm_get
 from .consent import Consent
-from .settings import SettingsCache
+from .settings import SettingsCache, parse_settings
 from .storage import BlobEventStore, ConsentStates, EventsCache
 from .tokens import CloudTokens
 from .web import Request, Response, Web
@@ -48,6 +51,8 @@ class Services:
     events_store: BlobEventStore
     tokens: CloudTokens
     session: object
+    app_identity: ManagedIdentity
+    config_text: Callable[[], str]  # straight from Key Vault, bypassing the cache
 
 
 def _env(name: str) -> str:
@@ -68,12 +73,14 @@ def build() -> Services:
     blobs = BlobContainer(session, _env("FWCAL_BLOB_CONTAINER_URL"), app_identity)
     client_id = _env("FWCAL_SYNC_CLIENT_ID")
 
-    settings = SettingsCache(lambda: config_vault.get(CONFIG_SECRET).value)
+    config_text = lambda: config_vault.get(CONFIG_SECRET).value
+    settings = SettingsCache(config_text)
     consent = Consent(states=ConsentStates(blobs), vault=token_vault, sync_identity=sync_identity,
                       client_id=client_id, session=session)
     web = Web(static=load_static(STATIC_DIR, include_tests=False), settings=settings, events=EventsCache(blobs),
               hostnames=frozenset({_env("WEBSITE_HOSTNAME")}), consent=consent)
-    return Services(web, settings, BlobEventStore(blobs), CloudTokens(token_vault, sync_identity, client_id), session)
+    return Services(web, settings, BlobEventStore(blobs), CloudTokens(token_vault, sync_identity, client_id), session,
+                    app_identity, config_text)
 
 
 _services: Services | None = None
@@ -131,3 +138,19 @@ def run_sync() -> int:
     if code != sync.OK:
         raise SyncIncomplete(code)
     return code
+
+
+def run_drift() -> int:
+    """The hourly drift check (fwcal.cloud.drift). Returns the number of IDs on
+    both lists, or raises DriftFound (or the error that stopped it), so the
+    platform records the run as Failed."""
+    s = services()
+    code = parse_settings(s.config_text())
+    path = drift.auth_settings_path(_env("FWCAL_SITE_ID"))
+    auth = arm_get(s.session, s.app_identity, path, drift.AUTH_SETTINGS_API)
+    found = drift.problems(auth, code.access.allowed, os.environ.get("WEBSITE_AUTH_AAD_ALLOWED_TENANTS", ""))
+    if found:
+        log.error("drift: %s", "; ".join(found))
+        raise drift.DriftFound("drift: " + "; ".join(found))
+    log.info("drift check passed: %d ID(s) on both lists; sign-in settings as expected", len(code.access.allowed))
+    return len(code.access.allowed)

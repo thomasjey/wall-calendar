@@ -35,3 +35,9 @@ def web(req: func.HttpRequest) -> func.HttpResponse:
 @app.timer_trigger(schedule="0 */5 * * * *", arg_name="timer", run_on_startup=False, use_monitor=True)
 def sync(timer: func.TimerRequest) -> None:
     cloud.run_sync()
+
+
+# The drift check (DESIGN §15.4): every hour, at 7 minutes past, away from the sync's 5-minute marks.
+@app.timer_trigger(schedule="0 7 * * * *", arg_name="timer", run_on_startup=False, use_monitor=True)
+def drift(timer: func.TimerRequest) -> None:
+    cloud.run_drift()

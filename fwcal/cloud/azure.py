@@ -19,11 +19,13 @@ MAX_BODY = 11 * 1024 * 1024  # events.json is capped at 10 MB (store.MAX_FILE_BY
 DRAIN_LIMIT = 64 * 1024  # leftover bodies up to this size are read so the connection can be reused
 KEY_VAULT = "https://vault.azure.net"
 STORAGE = "https://storage.azure.com/"
+ARM = "https://management.azure.com/"
 TOKEN_EXCHANGE = "api://AzureADTokenExchange"
 KV_API = "7.4"
 BLOB_API = "2023-11-03"
 _NAME_RE = re.compile(r"^[A-Za-z0-9-]{1,127}$")
 _BLOB_RE = re.compile(r"^[a-z0-9][a-z0-9/._-]{0,250}$")
+_ARM_PATH_RE = re.compile(r"^(/[A-Za-z0-9._()-]{1,128}){2,16}$")
 _GUID_RE = re.compile(r"^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$")
 
 
@@ -257,3 +259,20 @@ class BlobContainer:
             return True
         finally:
             r.close()
+
+
+def arm_get(session, identity: ManagedIdentity, path: str, api_version: str) -> dict:
+    """A read-only GET from Azure Resource Manager as `identity`, for the drift
+    check (which needs only Reader on the app's own site). The path is a
+    resource ID plus sub-resources; nothing from a response is ever followed."""
+    if not _ARM_PATH_RE.match(path) or ".." in path or not re.fullmatch(r"\d{4}-\d{2}-\d{2}(-preview)?", api_version):
+        raise AzureError("bad Resource Manager path")
+    r = _send("Resource Manager", session.get, f"{ARM}{path[1:]}?api-version={api_version}",
+              headers={"Authorization": f"Bearer {identity.token(ARM)}"}, timeout=TIMEOUT, allow_redirects=False,
+              stream=True)
+    try:
+        if r.status_code != 200:
+            raise AzureError(f"Resource Manager: HTTP {r.status_code}", r.status_code)
+        return _json(r, "Resource Manager")
+    finally:
+        _release(r)
