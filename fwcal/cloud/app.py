@@ -33,6 +33,9 @@ from .tokens import CloudTokens
 from .web import Request, Response, Web
 
 log = logging.getLogger("fwcal.cloud")
+# Python's default threshold is WARNING, and the Functions runtime doesn't
+# lower it; the sync's progress lines (which the sync alert counts) are INFO.
+logging.getLogger("fwcal").setLevel(logging.INFO)
 
 CONFIG_SECRET = "fwcal-config"
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"

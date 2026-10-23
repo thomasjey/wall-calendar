@@ -1,6 +1,6 @@
 # wall-calendar — Design
 
-**Version:** 0.27 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1–R4, R6, R7, R9 passed (§15.13); **dev deployed and verified 2026-10-22**; next: prod with R10 (ADR-33 amended), R5 (the iPad), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
+**Version:** 0.28 — **signed off 2026-10-21** (v0.3; §15 signed off with v0.17; §17 production profile with v0.22). Phases 1 and 3 done on the laptop; S1 passed, S2 mostly answered; Phase 5 spikes R1–R4, R6, R7, R9 passed (§15.13); **dev deployed and verified 2026-10-22**; **prod live 2026-10-22, R10 passed**; next: R5 (the iPad), R8 (always-ready cost), then the Phase 5 build; Phase 4 (Raspberry Pi) when the hardware arrives.
 **Date:** 2026-10-04
 **Conventions:** decisions are ADRs (§13), unknowns are spikes (§12.3), and nothing personal goes in this repository.
 
@@ -613,6 +613,7 @@ All run in a throwaway resource group in the project's subscription, with test a
 | R6 flood cost | **Pass.** 2,200 anonymous requests: answered by the platform (401), **0 billed executions**. With one instance, ~56 requests/s and a few timeouts | Floods cost nothing; with 1 instance they hurt availability |
 | R7 concurrency and scale | With up to 4 instances and per-instance concurrency 8: 4–32 parallel connections ran at 84–346 requests/s, p95 67–119 ms, **0 timeouts, 0 billed executions**. Scale-out follows sustained load, not seconds-long bursts | The R6 timeouts came from the cap of 1 instance; §17.3's max 4 confirmed. Signed-in load (our code running) still to measure in dev |
 | R9 deploy through OIDC | **Pass (2026-10-22).** The dev environment was bootstrapped and deployed by the pipeline with no stored credential: build with SBOM and signed provenance, package hash checked, infrastructure and code deployed, post-deploy checks green. Then by hand: an allowed account gets the page (both allowlists and the managed-identity sign-in on the real platform), `/api/health` answers without event content, and the viewer account (not listed) gets the platform's 403 | Three platform details found on the way, each fixed and tested: (1) GitHub's OIDC subject names the repository with permanent IDs (`owner@ownerId/name@repoId`), which the deploy identity now requires; (2) Flex Consumption has no `Http5xx` site metric, so the server-error alert uses Application Insights failed requests; (3) Flex serves managed-identity tokens on a link-local address, which the endpoint check now accepts (loopback or link-local only) |
+| R10 cloud sync with its managed identity | **Pass (2026-10-22, in prod; ADR-33 amended).** The consent page stored the viewer's refresh token in Key Vault; a reused consent link was refused; the sync then refreshed the token with only the sync identity's assertion (no key, no secret), read Graph and the calendars appeared, Health with titles only | **ADR-27 confirmed**; the Key Vault-key fallback (ADR-18) isn't needed. Found on the way: the Functions host reserves `/admin/` (the page moved to `/manage/consent`); the admin must be signed in to the website before opening the consent page (deploy/AZURE.md); the Functions Python runtime forwards only WARNING and above unless the code's logger is set to INFO |
 
 **Settings proven for personal accounts (the build sets all of them in code):**
 - App registration: `signInAudience` **PersonalMicrosoftAccount**, which needs `api.requestedAccessTokenVersion` **2** set first. *(Quick path: AzureADMyOrg.)*
@@ -632,7 +633,7 @@ All run in a throwaway resource group in the project's subscription, with test a
 | ADR | Decision |
 |---|---|
 | ADR-26 | The web sign-in has **no client secret**: built-in authentication uses a federated credential that trusts a user-assigned managed identity, which is assigned only to that environment's Function App (accepted 2026-10-22, R2) |
-| ADR-27 | Cloud sync's credential is a federated credential that trusts a **second, dedicated** user-assigned managed identity, not a Key Vault key; consent through an admin-only page in the Function App (accepted 2026-10-22, pending R10; fallback ADR-18) |
+| ADR-27 | Cloud sync's credential is a federated credential that trusts a **second, dedicated** user-assigned managed identity, not a Key Vault key; consent through an admin-only page in the Function App (accepted 2026-10-22; **confirmed by R10**) |
 | ADR-28 | Two allowlists with different owners: the platform list set only by the approved deploy, the code list a Key Vault secret only I can write; both fail closed; change alerts and a drift check (accepted 2026-10-22, §15.4) |
 
 ## 16. Ownership and handover
@@ -769,6 +770,7 @@ Runbooks in the repository: incident response (page down, sync failing, suspecte
 | 0.2 | 2026-10-04 | Open questions answered: ADR-1 accepted; ADR-11 independence (§0) and personal details removed from this repo; ADR-12 display defaults and `show_notes`; §9.0 hardware recommendation; ADR-14 Inter font |
 | 0.3 | 2026-10-21 | Visual baseline approved from the interactive mockup (§10.1) |
 | 0.4 | 2026-10-21 | Phase 1 done (§12.5): stdlib-only, `unittest` instead of pytest, `--config` instead of an environment override, server hardening additions |
+| 0.28 | 2026-10-22 | Prod live; R10 passed in prod, ADR-27 confirmed (§15.13) |
 | 0.27 | 2026-10-22 | Dev deployed and verified; R9 passed; three Flex and GitHub details recorded (§15.13) |
 | 0.26 | 2026-10-22 | ADR-34: how Phase 5 was built (identities, per-secret roles, two-switch enrolment, secrets-only workflow values, time zone, Fetch Metadata) |
 | 0.25 | 2026-10-22 | ADR-29 public repository with no personal references (pre-commit check); Phase 5 build choices ADR-30 to ADR-33 |
