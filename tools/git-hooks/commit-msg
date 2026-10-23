@@ -1,0 +1,6 @@
+#!/bin/sh
+# Enabled with: git config core.hooksPath tools/git-hooks
+# The commit message is as public as the files (DESIGN §0).
+PY=$(command -v python || command -v python3)
+[ -n "$PY" ] || { echo "commit-msg: Python not found" >&2; exit 1; }
+exec "$PY" tools/precommit_check.py --message "$1"

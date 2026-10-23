@@ -125,11 +125,18 @@ def staged() -> list[str]:
 
 
 def main(paths: list[str]) -> int:
-    """No arguments: the staged files (the git hook). With file arguments: those
-    files as they are on disk (CI runs it on every tracked file)."""
+    """No arguments: the staged files (the pre-commit hook). `--message FILE`: a
+    commit message (the commit-msg hook). File arguments: those files as they
+    are on disk (CI runs it on every tracked file)."""
     found = []
     blocklist = load_blocklist()
-    if paths:
+    if paths[:1] == ["--message"] and len(paths) == 2:
+        # The commit-msg hook: a commit message is as public as the files.
+        with open(paths[1], encoding="utf-8", errors="replace") as f:
+            text = "\n".join(line for line in f.read().splitlines() if not line.startswith("#"))
+        found += [f"commit message: personal reference at {w}" for w in personal_words(text)[:5]]
+        found += [f"commit message: blocked string at {w}" for w in blocked_strings(text, blocklist)[:5]]
+    elif paths:
         for path in paths:
             with open(path, "rb") as f:
                 found += problems(path.replace("\\", "/"), f.read(), blocklist)
