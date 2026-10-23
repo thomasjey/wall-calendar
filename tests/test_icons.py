@@ -37,6 +37,12 @@ class Icons(unittest.TestCase):
                 width, height, depth, colour_type = struct.unpack(">IIBB", data[16:26])
                 self.assertEqual((width, height, depth, colour_type), (size, size, 8, 2))  # RGB, no alpha
 
+    def test_manifest_fetched_with_the_session(self):
+        # Browsers fetch a manifest without cookies unless told otherwise; behind
+        # the sign-in layer that fetch is redirected to Microsoft and blocked by CSP.
+        page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">', page)
+
     def test_manifest(self):
         manifest = json.loads((STATIC_DIR / "manifest.webmanifest").read_text(encoding="utf-8"))
         self.assertEqual(manifest["start_url"], "/")
