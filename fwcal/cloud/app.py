@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .. import sync
 from ..netauth import http_session
-from ..server import load_static
+from ..server import SECURITY_HEADERS, load_static
 from .azure import BlobContainer, KeyVault, ManagedIdentity
 from .consent import Consent
 from .settings import SettingsCache
@@ -85,8 +85,18 @@ def services() -> Services:
         return _services
 
 
+def _handle(req: Request) -> Response:
+    try:
+        web = services().web
+    except Exception as exc:  # setup failed: a short answer with the usual headers, the cause only in the log
+        log.exception("could not start: %s", type(exc).__name__)
+        return Response(503, b"Not available right now\n", "text/plain; charset=utf-8",
+                        {**SECURITY_HEADERS, "Cache-Control": "no-store"})
+    return web.handle(req)
+
+
 async def handle(req: Request) -> Response:
-    return await asyncio.to_thread(lambda: services().web.handle(req))
+    return await asyncio.to_thread(_handle, req)
 
 
 def run_sync() -> int:

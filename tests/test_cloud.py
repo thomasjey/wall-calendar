@@ -113,9 +113,20 @@ class AzureRestTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(self.az.AzureError):
                 self.az.https_url(bad, ".vault.azure.net")
 
-    def test_identity_endpoint_must_be_local_and_tokens_are_cached(self):
-        with self.assertRaises(self.az.AzureError):
+    def test_identity_endpoint_must_be_loopback_or_link_local(self):
+        for ok in ("http://localhost:4141/msi", "http://127.0.0.1:8081/msi/token", "http://169.254.255.2:8081/msi/token",
+                   "http://[fe80::1]:8081/msi/token"):
+            with self.subTest(ok=ok):
+                self.az.ManagedIdentity(FakeHTTP(), ok, "h")
+        for bad in ("https://evil.example/msi", "http://10.0.0.4/msi", "http://20.1.2.3/msi", "http://169.254.1.1.evil.example/",
+                    "ftp://127.0.0.1/msi", "http:///msi"):
+            with self.subTest(bad=bad), self.assertRaises(self.az.AzureError):
+                self.az.ManagedIdentity(FakeHTTP(), bad, "h")
+        with self.assertRaises(self.az.AzureError) as cm:
             self.az.ManagedIdentity(FakeHTTP(), "https://evil.example/msi", "h")
+        self.assertIn("evil.example", str(cm.exception))  # the host is named; the header never is
+
+    def test_identity_tokens_are_cached(self):
         http = FakeHTTP([("GET", lambda u: u.startswith("http://localhost:4141/msi"),
                           FakeResponse(200, dict(access_token="AT", expires_on="2000003600")))])
         mi = self.az.ManagedIdentity(http, "http://localhost:4141/msi", "secret-header", OID_B, clock=lambda: 2000000000)
@@ -629,6 +640,26 @@ class RunSyncTest(unittest.TestCase):
         finally:
             app._services = orig
         self.assertIn("sync skipped: no calendars configured", logs.output[0])
+
+
+@unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
+class StartupFailureTest(unittest.TestCase):
+    def test_setup_failure_is_a_short_answer_with_headers(self):
+        from fwcal.cloud import app
+
+        def broken():
+            raise RuntimeError("app setting FWCAL_X is not set")
+
+        orig_build, orig_services = app.build, app._services
+        app.build, app._services = broken, None
+        try:
+            with self.assertLogs("fwcal.cloud", "ERROR"):
+                r = app._handle(None)
+        finally:
+            app.build, app._services = orig_build, orig_services
+        self.assertEqual((r.status, r.body), (503, b"Not available right now\n"))
+        self.assertIn("Content-Security-Policy", r.headers)
+        self.assertNotIn(b"FWCAL", r.body)
 
 
 @unittest.skipUnless(HAVE_DEPS, "requests/tzdata not installed")
