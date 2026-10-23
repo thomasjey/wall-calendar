@@ -89,7 +89,9 @@ body.night #shade { background-color: rgba(0, 0, 0, 0.5); }
 }
 #tabs button.on { background: rgba(255, 255, 255, 0.88); color: #16202e; font-weight: 500; }
 
-#view { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+#view { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+/* The neighbouring page, drawn beside the current one while paging (app.js). */
+#view > .peek { position: absolute; left: 0; right: 0; pointer-events: none; }
 #view::-webkit-scrollbar { display: none; }
 
 .label {
