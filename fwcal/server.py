@@ -32,7 +32,7 @@ PHOTO_RESCAN_SECONDS = 600
 
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
-    "font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+    "font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'"
 )
 SECURITY_HEADERS = {
@@ -53,6 +53,8 @@ STATIC_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".woff2": "font/woff2",
+    ".png": "image/png",  # the app icons (static/icons, tools/make_icons.py)
+    ".webmanifest": "application/manifest+json",
 }
 PHOTO_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 _PHOTO_MAGIC = {

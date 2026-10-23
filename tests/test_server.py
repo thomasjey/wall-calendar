@@ -77,7 +77,9 @@ class ServerTest(unittest.TestCase):
 
     def test_static_files(self):
         for path, ctype in (("/app.css", "text/css"), ("/js/app.js", "text/javascript"),
-                            ("/fonts/InterVariable.woff2", "font/woff2")):
+                            ("/fonts/InterVariable.woff2", "font/woff2"), ("/icons/icon-32.png", "image/png"),
+                            ("/icons/apple-touch-icon.png", "image/png"),
+                            ("/manifest.webmanifest", "application/manifest+json")):
             r, _ = self.request(path)
             self.assertEqual(r.status, 200, path)
             self.assertTrue(r.getheader("Content-Type").startswith(ctype))
