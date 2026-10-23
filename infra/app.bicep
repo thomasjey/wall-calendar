@@ -139,6 +139,9 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'AzureWebJobsStorage__credential', value: 'managedidentity' }
         { name: 'AzureWebJobsStorage__clientId', value: appIdentity.properties.clientId }
         { name: 'AzureWebJobsDisableHomepage', value: 'true' }
+        // One worker thread per request the host may send, so none waits inside the instance
+        // (Python's default is min(32, CPUs + 4): about 5 on a quarter-core instance).
+        { name: 'PYTHON_THREADPOOL_THREAD_COUNT', value: string(perInstanceConcurrency) }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: insights.properties.ConnectionString }
         { name: 'FWCAL_KEY_VAULT_URL', value: vault.properties.vaultUri }
         { name: 'FWCAL_BLOB_CONTAINER_URL', value: '${storage.properties.primaryEndpoints.blob}data' }
