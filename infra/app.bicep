@@ -299,25 +299,27 @@ resource vaultUnexpected 'Microsoft.Insights/scheduledQueryRules@2023-03-15-prev
   }
 }
 
+@description('More than 5 failed requests in 15 minutes. Flex Consumption has no Http5xx site metric, so this uses Application Insights; requests refused by built-in sign-in never reach the code, so they are not counted.')
 resource serverErrors 'Microsoft.Insights/metricAlerts@2018-03-01' = {
   name: 'alert-${functionAppName}-5xx'
   location: 'global'
   properties: {
     severity: 2
     enabled: true
-    scopes: [site.id]
+    scopes: [insights.id]
     evaluationFrequency: 'PT5M'
     windowSize: 'PT15M'
     criteria: {
       'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
       allOf: [
         {
-          name: 'server-errors'
+          name: 'failed-requests'
           criterionType: 'StaticThresholdCriterion'
-          metricName: 'Http5xx'
+          metricNamespace: 'microsoft.insights/components'
+          metricName: 'requests/failed'
           operator: 'GreaterThan'
           threshold: 5
-          timeAggregation: 'Total'
+          timeAggregation: 'Count'
         }
       ]
     }
