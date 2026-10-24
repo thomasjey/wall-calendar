@@ -79,6 +79,8 @@ function ridgeRandom(seed) {
 const ridgePath = (ys) => `M${ys.map((y, x) => `${x},${y.toFixed(2)}`).join(' L')} L100,30 L0,30 Z`;
 
 let parts = null;
+let lastPaint = null;  // the time last painted, to tell a minute's step from a gap
+const GLIDE_MAX_MS = 2 * 60_000;
 
 export function initSky() {
   const bg = document.getElementById('bg');
@@ -130,6 +132,11 @@ export function paintSky(now, location) {
   colors.forEach((c, i) => body.style.setProperty(`--sky-${i}`, c));
   [0.42, 0.56, 0.7].forEach((t, i) => body.style.setProperty(`--hill-${i}`, mixColor(colors[3], NIGHT_GROUND, t)));
   if (!parts) return;
+  // After a gap (a device asleep overnight, a background tab), jump straight to
+  // the new sky, as on a first paint: gliding there would take the usual minute,
+  // showing bedtime's stars and moon in the morning.
+  if (lastPaint === null || Math.abs(now.getTime() - lastPaint) > GLIDE_MAX_MS) parts.bg.classList.remove('settled');
+  lastPaint = now.getTime();
   const [lat, lon] = location || fallbackLocation(now);
   const sun = sunPosition(now, lat, lon);
   const moon = moonPosition(now, lat, lon);

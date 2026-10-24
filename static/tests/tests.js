@@ -3,7 +3,7 @@
 
 import * as t from '../js/time.js';
 import * as astro from '../js/astro.js';
-import { ridges } from '../js/sky.js';
+import { initSky, paintSky, ridges } from '../js/sky.js';
 import { el, setCalColor, setPhoto, showFullTextOnHover } from '../js/dom.js';
 import { DEFAULTS, parseSettings } from '../js/settings.js';
 
@@ -290,6 +290,25 @@ test('mountain ridges: inside their band, nearer below farther, the same every t
   for (const ys of a) {
     const slopes = ys.slice(1).map((y, x) => y - ys[x]);
     if (new Set(slopes.map((d) => d.toFixed(2))).size < 10) throw new Error('ridge too regular');
+  }
+});
+
+test('sky: glides from minute to minute, jumps after a gap (a device asleep overnight)', () => {
+  const bg = document.createElement('div');
+  bg.id = 'bg';
+  document.body.append(bg);
+  try {
+    initSky();
+    const loc = [47.5, -121.8];
+    const t = new Date(2026, 9, 23, 23, 30);
+    paintSky(t, loc);
+    bg.classList.add('settled');  // as two frames after a paint
+    paintSky(new Date(t.getTime() + 60_000), loc);
+    if (!bg.classList.contains('settled')) throw new Error('a one-minute step should glide');
+    paintSky(new Date(t.getTime() + 9.5 * 3_600_000), loc);  // the next morning
+    if (bg.classList.contains('settled')) throw new Error('after a gap the sky should jump, not glide for a minute');
+  } finally {
+    bg.remove();
   }
 });
 
