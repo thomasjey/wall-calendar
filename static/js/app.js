@@ -4,6 +4,7 @@ import { closeDetails, initDetails, openDetails } from './details.js';
 import { el, showFullTextOnHover } from './dom.js';
 import { initPhotos } from './photos.js';
 import { DEFAULTS, parseSettings } from './settings.js';
+import { reloadForSignIn, signInRefused } from './signin.js';
 import { initSky, paintSky } from './sky.js';
 import {
   addDays, bucket, clockParts, firstOfMonth, fmtTime, fromKey, inDailyRange, longDate,
@@ -27,6 +28,8 @@ const state = {
   view: 'day',
   focus: null,
   lastFetchOk: true,
+  signedOut: false,  // the online page's sign-in has ended (signin.js)
+  waking: false,  // back from sleep or a hidden tab, before the first refresh
   loadedAt: Date.now(),
   lastMinute: '',
   etag: null,
@@ -67,7 +70,12 @@ function setData(data) {
 async function refresh() {
   try {
     const headers = state.etag ? { 'If-None-Match': state.etag } : {};
-    const r = await fetch('/api/events', { cache: 'no-store', headers });
+    const r = await fetch('/api/events', { cache: 'no-store', headers, redirect: 'manual' });
+    if (signInRefused(r)) {
+      state.signedOut = true;
+      throw new Error('signed out');
+    }
+    state.signedOut = false;
     if (r.status !== 304) {
       if (!r.ok) throw new Error(`events: ${r.status}`);
       const data = await r.json();
@@ -81,7 +89,9 @@ async function refresh() {
   } catch {
     state.lastFetchOk = false;
   }
+  state.waking = false;
   renderStatus();
+  if (state.signedOut) reloadForSignIn();
 }
 
 // ----- rendering -----
@@ -129,7 +139,10 @@ function renderStatus() {
   const d = state.data;
   let text = '';
   let cls = '';
-  if (!d || d.error) {
+  if (state.signedOut) {
+    text = 'Signed out';  // reloads through sign-in once the window is in focus (signin.js)
+    cls = 'bad';
+  } else if (!d || d.error) {
     text = 'Waiting for calendar data';
     cls = 'warn';
   } else if (d.auth === 'reauth_required') {
@@ -139,7 +152,9 @@ function renderStatus() {
     const times = d.calendars.map((c) => c.lastSuccessAt).filter(Boolean).map((t) => new Date(t));
     const oldest = times.length ? new Date(Math.min(...times)) : null;
     const mins = oldest ? (now() - oldest) / 60000 : Infinity;
-    if (mins > OFFLINE_MIN) {
+    if (state.waking) {
+      // Back from sleep: last night's data is old until the first refresh has had its chance.
+    } else if (mins > OFFLINE_MIN) {
       text = oldest ? `Offline since ${fmtTime(oldest, state.settings.clock)}` : 'Offline';
       cls = 'bad';
     } else if (mins > STALE_MIN || !state.lastFetchOk) {
@@ -387,6 +402,7 @@ function schedulePoll() {
 }
 
 function startTimers() {
+  state.waking = true;
   tick(); // catch up at once (after sleep or while the page was hidden)
   scheduleTick();
   refresh();
@@ -416,6 +432,8 @@ async function main() {
   schedulePoll();
   // The kiosk is never hidden; a laptop tab in the background does no work.
   document.addEventListener('visibilitychange', () => (document.hidden ? stopTimers() : startTimers()));
+  // Signed out while nobody was looking: sign in again when someone comes back to the window.
+  window.addEventListener('focus', () => { if (state.signedOut) reloadForSignIn(); });
   initPhotos(state.settings.photoIntervalSeconds);
 }
 
