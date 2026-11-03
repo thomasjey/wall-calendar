@@ -4,6 +4,7 @@
 import * as t from '../js/time.js';
 import * as astro from '../js/astro.js';
 import { ridges } from '../js/sky.js';
+import { RETRY_MS, mayReload, reloadForSignIn, signInRefused } from '../js/signin.js';
 import { el, setCalColor, setPhoto, showFullTextOnHover } from '../js/dom.js';
 import { DEFAULTS, parseSettings } from '../js/settings.js';
 
@@ -291,6 +292,35 @@ test('mountain ridges: inside their band, nearer below farther, the same every t
     const slopes = ys.slice(1).map((y, x) => y - ys[x]);
     if (new Set(slopes.map((d) => d.toFixed(2))).size < 10) throw new Error('ridge too regular');
   }
+});
+
+test('sign-in ended: recognised, and reloaded only when someone is looking, at most every 30 minutes', () => {
+  // What a fetch with { redirect: 'manual' } returns.
+  if (!signInRefused({ status: 401, type: 'basic' })) throw new Error('401');
+  if (!signInRefused({ status: 0, type: 'opaqueredirect' })) throw new Error('redirect to sign-in');
+  for (const ok of [{ status: 200, type: 'basic' }, { status: 304, type: 'basic' }, { status: 503, type: 'basic' }]) {
+    if (signInRefused(ok)) throw new Error(`not a sign-in refusal: ${ok.status}`);
+  }
+  const t = 1_000_000_000;
+  eq([mayReload(t, null, false), mayReload(t, null, true)], [false, true]);  // only while looking
+  eq([mayReload(t + RETRY_MS - 1, t, true), mayReload(t + RETRY_MS, t, true), mayReload(t - 1, t, true)], [false, true, true]);
+
+  const fakeWindow = ({ hidden = false, focused = true, storage = new Map(), broken = false } = {}) => {
+    const w = { reloads: 0, document: { hidden, hasFocus: () => focused }, location: { reload: () => { w.reloads += 1; } } };
+    w.sessionStorage = {
+      getItem: (k) => { if (broken) throw new Error('no storage'); return storage.has(k) ? storage.get(k) : null; },
+      setItem: (k, v) => { if (broken) throw new Error('no storage'); storage.set(k, v); },
+    };
+    return w;
+  };
+  const looking = fakeWindow();
+  eq([reloadForSignIn(looking), reloadForSignIn(looking), looking.reloads], [true, false, 1]);  // once, then waits
+  const away = fakeWindow({ focused: false });
+  eq([reloadForSignIn(away), away.reloads], [false, 0]);  // not while the window isn't in focus
+  const hidden = fakeWindow({ hidden: true });
+  eq([reloadForSignIn(hidden), hidden.reloads], [false, 0]);
+  const noStorage = fakeWindow({ broken: true });
+  eq([reloadForSignIn(noStorage), noStorage.reloads], [false, 0]);  // can't remember the last try: never risk a loop
 });
 
 const failed = results.filter(([ok]) => !ok);
