@@ -59,7 +59,6 @@ class Web:
         self._static, self._settings, self._events = static, settings, events
         self._hosts = frozenset(h.lower() for h in hostnames)
         self._consent, self._now = consent, now
-        self._claims_seen: set[str] = set()  # temporary sign-in diagnostic (below)
 
     def handle(self, req: Request) -> Response:
         try:
@@ -109,12 +108,6 @@ class Web:
         if not allowed:
             log.warning("refused: %s not on the allowlist", who.log_id())
             return _text(403, "Error 403")
-        if who.log_id() not in self._claims_seen:
-            # Temporary (DESIGN §15.5, 2026-11-04): does Microsoft say how a personal
-            # account signed in? Claim names and the method values only; no IDs.
-            self._claims_seen.add(who.log_id())
-            log.info("sign-in claims for %s: types=%s amr=%s acr=%s", who.log_id(),
-                     ",".join(who.claim_types) or "-", ",".join(who.amr) or "-", who.acr or "-")
 
         if path in (START, CALLBACK):
             return self._consent_route(req, who, access.admins, settings.config.expected_account)
