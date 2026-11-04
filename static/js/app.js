@@ -4,7 +4,7 @@ import { closeDetails, initDetails, openDetails } from './details.js';
 import { el, showFullTextOnHover } from './dom.js';
 import { initPhotos } from './photos.js';
 import { DEFAULTS, parseSettings } from './settings.js';
-import { reloadForSignIn, signInRefused } from './signin.js';
+import { signInAgain, signInRefused } from './signin.js';
 import { initSky, paintSky } from './sky.js';
 import {
   addDays, bucket, clockParts, firstOfMonth, fmtTime, fromKey, inDailyRange, longDate,
@@ -91,7 +91,7 @@ async function refresh() {
   }
   state.waking = false;
   renderStatus();
-  if (state.signedOut) reloadForSignIn();
+  if (state.signedOut) signInAgain();
 }
 
 // ----- rendering -----
@@ -433,7 +433,7 @@ async function main() {
   // The kiosk is never hidden; a laptop tab in the background does no work.
   document.addEventListener('visibilitychange', () => (document.hidden ? stopTimers() : startTimers()));
   // Signed out while nobody was looking: sign in again when someone comes back to the window.
-  window.addEventListener('focus', () => { if (state.signedOut) reloadForSignIn(); });
+  window.addEventListener('focus', () => { if (state.signedOut) signInAgain(); });
   initPhotos(state.settings.photoIntervalSeconds);
 }
 
