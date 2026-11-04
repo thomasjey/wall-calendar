@@ -4,7 +4,7 @@
 import * as t from '../js/time.js';
 import * as astro from '../js/astro.js';
 import { ridges } from '../js/sky.js';
-import { RETRY_MS, mayReload, reloadForSignIn, signInRefused } from '../js/signin.js';
+import { RETRY_MS, SIGN_IN, mayReload, signInAgain, signInRefused } from '../js/signin.js';
 import { el, setCalColor, setPhoto, showFullTextOnHover } from '../js/dom.js';
 import { DEFAULTS, parseSettings } from '../js/settings.js';
 
@@ -306,7 +306,7 @@ test('sign-in ended: recognised, and reloaded only when someone is looking, at m
   eq([mayReload(t + RETRY_MS - 1, t, true), mayReload(t + RETRY_MS, t, true), mayReload(t - 1, t, true)], [false, true, true]);
 
   const fakeWindow = ({ hidden = false, focused = true, storage = new Map(), broken = false } = {}) => {
-    const w = { reloads: 0, document: { hidden, hasFocus: () => focused }, location: { reload: () => { w.reloads += 1; } } };
+    const w = { reloads: 0, to: null, document: { hidden, hasFocus: () => focused }, location: { assign: (url) => { w.reloads += 1; w.to = url; } } };
     w.sessionStorage = {
       getItem: (k) => { if (broken) throw new Error('no storage'); return storage.has(k) ? storage.get(k) : null; },
       setItem: (k, v) => { if (broken) throw new Error('no storage'); storage.set(k, v); },
@@ -314,13 +314,15 @@ test('sign-in ended: recognised, and reloaded only when someone is looking, at m
     return w;
   };
   const looking = fakeWindow();
-  eq([reloadForSignIn(looking), reloadForSignIn(looking), looking.reloads], [true, false, 1]);  // once, then waits
+  eq([signInAgain(looking), signInAgain(looking), looking.reloads], [true, false, 1]);  // once, then waits
+  eq(looking.to, SIGN_IN);  // sign-in, returning to the calendar page
+  eq(SIGN_IN, '/.auth/login/aad?post_login_redirect_uri=%2F');
   const away = fakeWindow({ focused: false });
-  eq([reloadForSignIn(away), away.reloads], [false, 0]);  // not while the window isn't in focus
+  eq([signInAgain(away), away.reloads], [false, 0]);  // not while the window isn't in focus
   const hidden = fakeWindow({ hidden: true });
-  eq([reloadForSignIn(hidden), hidden.reloads], [false, 0]);
+  eq([signInAgain(hidden), hidden.reloads], [false, 0]);
   const noStorage = fakeWindow({ broken: true });
-  eq([reloadForSignIn(noStorage), noStorage.reloads], [false, 0]);  // can't remember the last try: never risk a loop
+  eq([signInAgain(noStorage), noStorage.reloads], [false, 0]);  // can't remember the last try: never risk a loop
 });
 
 const failed = results.filter(([ok]) => !ok);

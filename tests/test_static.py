@@ -14,6 +14,8 @@ BANNED = [
     r"DOMParser", r"document\.domain", r"postMessage", r"\bimport\s*\(", r"\.src\s*=",
 ]
 ALLOWED_SRC_ASSIGN = {"js/dom.js"}  # setPhoto() validates the URL first
+# The one navigation the page makes: signin.js, to the fixed same-site sign-in route.
+ALLOWED_NAVIGATION = {"js/signin.js": "win.location.assign(SIGN_IN)"}
 
 
 def frontend_files(*, include_tests=False):
@@ -29,11 +31,19 @@ class FrontendSource(unittest.TestCase):
         for path in frontend_files():
             rel = path.relative_to(STATIC_DIR).as_posix()
             text = path.read_text(encoding="utf-8")
+            if rel in ALLOWED_NAVIGATION:
+                text = text.replace(ALLOWED_NAVIGATION[rel], "")
             for pattern in BANNED:
                 if pattern == r"\.src\s*=" and rel in ALLOWED_SRC_ASSIGN:
                     continue
                 with self.subTest(file=rel, pattern=pattern):
                     self.assertIsNone(re.search(pattern, text))
+
+    def test_the_only_navigation_is_to_sign_in(self):
+        # Pinned, so the exemption above can't be widened by changing the constant.
+        text = (STATIC_DIR / "js" / "signin.js").read_text(encoding="utf-8")
+        self.assertIn("export const SIGN_IN = '/.auth/login/aad?post_login_redirect_uri=%2F';", text)
+        self.assertEqual(text.count("location.assign("), 1)
 
     def test_no_external_urls(self):
         for path in frontend_files(include_tests=True):
