@@ -69,11 +69,11 @@ class FakeHTTP:
         return self.request("DELETE", url, **kw)
 
 
-def principal_header(oid=OID_A, tid=CONSUMER, auth_typ="aad", extra=()):
+def principal_header(oid=OID_A, tid=CONSUMER, auth_typ="aad"):
     data = {"auth_typ": auth_typ, "claims": [
         {"typ": "http://schemas.microsoft.com/identity/claims/objectidentifier", "val": oid},
         {"typ": "http://schemas.microsoft.com/identity/claims/tenantid", "val": tid},
-        {"typ": "name", "val": "Someone"}, *({"typ": t, "val": v} for t, v in extra)]}
+        {"typ": "name", "val": "Someone"}]}
     return base64.b64encode(json.dumps(data).encode()).decode()
 
 
@@ -466,28 +466,13 @@ class PrincipalTest(unittest.TestCase):
     def test_parse(self):
         from fwcal.cloud import principal as p
 
-        who = p.parse(principal_header())
-        self.assertEqual((who.oid, who.tid, who.amr, who.acr), (OID_A, CONSUMER, (), ""))
-        self.assertEqual(who.claim_types, ("name", "objectidentifier", "tenantid"))
+        self.assertEqual(p.parse(principal_header()), p.Principal(OID_A, CONSUMER))
         self.assertEqual(p.parse(principal_header(oid=OID_A.upper())).oid, OID_A)
         for bad in (None, "", "not base64!", base64.b64encode(b"[]").decode(), principal_header(auth_typ="google"),
                     principal_header(oid="bob"), principal_header(tid=""), "A" * 20000):
             with self.subTest(bad=str(bad)[:20]):
                 self.assertIsNone(p.parse(bad))
         self.assertNotIn(OID_A, p.Principal(OID_A, CONSUMER).log_id())
-
-    def test_sign_in_methods(self):
-        # How the person signed in, if Microsoft says: amr (any number) and acr.
-        from fwcal.cloud import principal as p
-
-        who = p.parse(principal_header(extra=[
-            ("http://schemas.microsoft.com/claims/authnmethodsreferences", "fido"),
-            ("amr", "mfa"), ("amr", "fido"), ("acr", "1"),
-            ("amr", "not a token <script>"), ("email", "viewer@example.com")]))
-        self.assertEqual(who.amr, ("fido", "mfa"))  # in order, once each; anything odd dropped
-        self.assertEqual(who.acr, "1")
-        self.assertIn("authnmethodsreferences", who.claim_types)
-        self.assertNotIn("viewer@example.com", repr(who.claim_types) + repr(who.amr) + who.acr)
 
 
 SITE_ID = ("/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test"
@@ -780,19 +765,6 @@ class WebTest(unittest.TestCase):
         if oid is not None:
             h["x-ms-client-principal"] = principal_header(oid) if isinstance(oid, str) else oid
         return self.web.handle(self.web_mod.Request(method, path, h, headers.pop("query", {}) if False else {}))
-
-    def test_sign_in_claims_logged_once_without_ids(self):
-        # Temporary diagnostic (DESIGN §15.5): what Microsoft says about how someone signed in.
-        hdr = principal_header(extra=[("amr", "fido"), ("acr", "1"), ("email", "viewer@example.com")])
-        with self.assertLogs("fwcal", "INFO") as logs:
-            self.get("/", oid=None, x_ms_client_principal=hdr)
-            self.get("/api/settings", oid=None, x_ms_client_principal=hdr)
-        lines = [line for line in logs.output if "sign-in claims" in line]
-        self.assertEqual(len(lines), 1)  # once per person per instance
-        self.assertIn("amr=fido acr=1", lines[0])
-        self.assertIn("types=acr,amr,email,name,objectidentifier,tenantid", lines[0])
-        for secret in (OID_A, "viewer@example.com", "Someone"):
-            self.assertNotIn(secret, lines[0])
 
     def test_allowed_person_gets_the_page_and_data(self):
         r = self.get("/")
