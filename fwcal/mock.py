@@ -18,7 +18,7 @@ CALENDARS = (
     Calendar("health", "Health", "#AFA9EC", detail="titles"),
     Calendar("test", "Test", "#B4B2A9"),
 )
-STATUSES = ("fresh", "stale", "offline", "reauth")
+STATUSES = ("fresh", "stale", "not-updated", "reauth")
 
 _TEAMS_BLOCK = (
     "Agenda: budget review.\n\n"
@@ -161,7 +161,7 @@ def build_payload(now_local: datetime, cfg: Config, status: str = "fresh") -> di
     start, end = sync_window(today, cfg.lookahead_days, cfg.display.week_start)
     now_utc = now_local.astimezone(UTC)
     last = now_utc - {"fresh": timedelta(0), "stale": timedelta(minutes=25),
-                      "offline": timedelta(minutes=75), "reauth": timedelta(minutes=40)}[status]
+                      "not-updated": timedelta(minutes=75), "reauth": timedelta(minutes=40)}[status]
     detail = {c.key: c.detail for c in CALENDARS}
     events = []
     for cal, ev in _graph_events(today, start, end):

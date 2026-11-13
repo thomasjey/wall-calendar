@@ -49,7 +49,7 @@ class Mock(unittest.TestCase):
 
     def test_statuses(self):
         self.assertEqual(build("reauth")["auth"], "reauth_required")
-        self.assertTrue(all(c["status"] == "stale" for c in build("offline")["calendars"]))
+        self.assertTrue(all(c["status"] == "stale" for c in build("not-updated")["calendars"]))
 
     def test_mock_mode_has_no_network_or_msal(self):
         # A fresh interpreter: generate mock data, serve one request, and check
