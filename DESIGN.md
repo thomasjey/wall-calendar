@@ -256,7 +256,10 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - **Dark overlay:** a vertical gradient (darker at top and bottom where text sits), plus a subtle text shadow. **No `backdrop-filter` blur**: it's expensive on the Pi GPU. Cards use a flat translucent dark fill instead.
 - **Type:** a light sans-serif (weights 200–400) in white and soft greys. Clock about 180 px at weight 200; date about 48 px.
 - **Calendar colors:** a 6 px left bar on each event, plus a matching dot in the month view. A legend with calendar names sits at the bottom.
-- **Status line** (small, bottom corner): nothing while fresh; amber "Updated 25 min ago" after 15 minutes; red "Offline since 14:05" after 60 minutes; "Calendar sign-in needed" when re-authentication is required.
+- **Status line** (small, bottom corner, `static/js/status.js`): nothing while fresh; amber "Updated 25 min ago" after 15 minutes; "Calendar sign-in needed" when re-authentication is required; red after 60 minutes, saying which side failed:
+  - "Calendars not updated since 14:05": the page reaches its server, but the calendars haven't synced (Microsoft's service or the server's own network is down). The time is the oldest calendar's last sync.
+  - "Potential outage since 14:05": the page can't reach its server (the device's network, or the server is down). The time is the last time it could.
+  - Both keep showing the last good events. *Both were "Offline since …" until 2026-11-12, when Microsoft's Outlook outage showed "Offline" on a page that was online.*
 - **Night dimming:** a darker overlay between configurable hours (default 22:00–06:30). Turning the screen off on a schedule (`wlr-randr`) is an operations option, not app code.
 - **Visual baseline approved 2026-10-21** from an interactive mockup: photo background with flat dark overlay, Inter at light weights, a 12-hour clock with a small AM/PM, pill-shaped view switch, colored left bars for events, Week as stacked day rows, a Sunday-first Month grid, a bottom-sheet details panel, and a legend with the status note in the bottom row. Phase 1 builds to this look.
 - **The approved mockup is the visual reference (decided 2026-10-21).** DAKboard screenshots are no longer needed. `reference/` stays gitignored in case any are added later.
@@ -299,7 +302,7 @@ Every string from Graph is untrusted. `normalize.py` turns a Graph event into th
 - `fwcal dev --mock` (laptop) or `fwcal serve --mock`. **Mock mode never imports MSAL, never reads the token cache and makes no network calls**; a test enforces this.
 - It generates events relative to "now" across 6 generic calendars: overlapping events, all-day and multi-day events, overnight events, a day with 9 events (overflow), an empty day, and a private event.
 - **Adversarial fixtures double as security tests:** a body with `<script>`, `<img onerror>`, `javascript:` URLs, `<a href>`, a Teams join block, bidi-override characters, zero-width characters, a 10,000-character title, emoji and RTL text, and an HTML body that arrives despite the text preference. They go through **the same `normalize.py` as Graph data**, so the UI shows exactly what production would.
-- `--now 2026-12-31T23:30` fixes the clock to test month and year rollover. A built-in sample photo set (flat landscapes drawn by the standard library at first start) keeps it free of personal photos and downloads. `--mock-status stale|offline|reauth` shows each status-line state.
+- `--now 2026-12-31T23:30` fixes the clock to test month and year rollover. A built-in sample photo set (flat landscapes drawn by the standard library at first start) keeps it free of personal photos and downloads. `--mock-status stale|not-updated|reauth` shows each status-line state.
 
 ## 11. Threat model and operations
 

@@ -21,7 +21,7 @@ python -m fwcal dev --mock
 Then open http://127.0.0.1:8765/. Useful options:
 
 - `--now 2026-12-31T23:30`: start the clock at a given local time (mock only)
-- `--mock-status stale|offline|reauth`: show the status-line states
+- `--mock-status stale|not-updated|reauth`: show the status-line states
 - `--config PATH`: use a config file (see [`config.example.toml`](config.example.toml))
 
 Frontend unit tests run in the browser at http://127.0.0.1:8765/tests/index.html (mock mode only).

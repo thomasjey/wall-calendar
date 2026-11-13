@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--config", help="config file (default: platform location)")
         s.add_argument("--port", type=int, help="override the configured port")
         s.add_argument("--now", help="mock only: start the clock at this local time, e.g. 2026-12-31T23:30")
-        s.add_argument("--mock-status", choices=("fresh", "stale", "offline", "reauth"), default="fresh",
+        s.add_argument("--mock-status", choices=("fresh", "stale", "not-updated", "reauth"), default="fresh",
                        help="mock only: simulate a sync state")
         s.set_defaults(func=cmd_serve)
     a = sub.add_parser("auth", help="sign in, check or remove the viewer account's sign-in")

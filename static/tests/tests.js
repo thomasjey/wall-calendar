@@ -5,6 +5,7 @@ import * as t from '../js/time.js';
 import * as astro from '../js/astro.js';
 import { ridges } from '../js/sky.js';
 import { RETRY_MS, SIGN_IN, mayReload, signInAgain, signInRefused } from '../js/signin.js';
+import { statusLine } from '../js/status.js';
 import { el, setCalColor, setPhoto, showFullTextOnHover } from '../js/dom.js';
 import { DEFAULTS, parseSettings } from '../js/settings.js';
 
@@ -323,6 +324,29 @@ test('sign-in ended: recognised, and reloaded only when someone is looking, at m
   eq([signInAgain(hidden), hidden.reloads], [false, 0]);
   const noStorage = fakeWindow({ broken: true });
   eq([signInAgain(noStorage), noStorage.reloads], [false, 0]);  // can't remember the last try: never risk a loop
+});
+
+test('status line tells a server outage from calendars not syncing', () => {
+  const at = (h, m) => local(2026, 11, 12, h, m).getTime();
+  const fmt = (d) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const cals = (...synced) => ({ calendars: synced.map((ms) => ({ lastSuccessAt: ms && new Date(ms).toISOString() })) });
+  const base = { signedOut: false, waking: false, lastFetchOk: true, lastFetchOkAt: at(16, 10), nowMs: at(16, 11), fmt };
+  const line = (o) => { const r = statusLine({ ...base, ...o }); return [r.text, r.cls]; };
+
+  eq(line({ data: cals(at(16, 10), at(16, 5)) }), ['', '']);  // fresh
+  eq(line({ data: cals(at(15, 50), at(16, 10)) }), ['Updated 21 min ago', 'warn']);  // the oldest calendar counts
+  // The page reaches its server, but the calendars haven't synced (Microsoft's outage on 2026-11-12).
+  eq(line({ data: cals(at(9, 45), at(10, 0)) }), ['Calendars not updated since 9:45', 'bad']);
+  eq(line({ data: cals(null) }), ['Calendars not updated', 'bad']);  // never synced
+  // The page can't reach its server: timed from the last time it could, whatever the data says.
+  eq(line({ data: cals(at(14, 0)), lastFetchOk: false, lastFetchOkAt: at(14, 30) }), ['Potential outage since 14:30', 'bad']);
+  eq(line({ data: cals(at(16, 0)), lastFetchOk: false, lastFetchOkAt: at(15, 40) }), ['Updated 11 min ago', 'warn']);  // brief: amber
+  eq(line({ data: cals(at(16, 10)), lastFetchOk: false, lastFetchOkAt: at(16, 10) }), ['Updated 1 min ago', 'warn']);
+  // Earlier states win, and nothing shows while waking from sleep.
+  eq(line({ data: cals(at(9, 45)), waking: true }), ['', '']);
+  eq(line({ data: cals(at(9, 45)), signedOut: true }), ['Signed out', 'bad']);
+  eq(line({ data: null }), ['Waiting for calendar data', 'warn']);
+  eq(line({ data: { ...cals(at(9, 45)), auth: 'reauth_required' } }), ['Calendar sign-in needed', 'bad']);
 });
 
 const failed = results.filter(([ok]) => !ok);

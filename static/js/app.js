@@ -6,6 +6,7 @@ import { initPhotos } from './photos.js';
 import { DEFAULTS, parseSettings } from './settings.js';
 import { signInAgain, signInRefused } from './signin.js';
 import { initSky, paintSky } from './sky.js';
+import { statusLine } from './status.js';
 import {
   addDays, bucket, clockParts, firstOfMonth, fmtTime, fromKey, inDailyRange, longDate,
   monthGrid, startOfDay, weekStartOf,
@@ -13,8 +14,6 @@ import {
 import * as views from './views.js';
 
 const POLL_MS = 60_000;
-const STALE_MIN = 15;
-const OFFLINE_MIN = 60;
 const SWIPE_PX = 60;
 const DRAG_PX = 12;  // horizontal movement before the page starts to follow the finger
 const RELOAD_HOUR = 3;
@@ -28,6 +27,7 @@ const state = {
   view: 'day',
   focus: null,
   lastFetchOk: true,
+  lastFetchOkAt: null,  // when the page last reached its server (ms)
   signedOut: false,  // the online page's sign-in has ended (signin.js)
   waking: false,  // back from sleep or a hidden tab, before the first refresh
   loadedAt: Date.now(),
@@ -86,6 +86,7 @@ async function refresh() {
       }
     }
     state.lastFetchOk = true;
+    state.lastFetchOkAt = now().getTime();
   } catch {
     state.lastFetchOk = false;
   }
@@ -136,32 +137,11 @@ function renderLegend() {
 
 function renderStatus() {
   const s = $('status');
-  const d = state.data;
-  let text = '';
-  let cls = '';
-  if (state.signedOut) {
-    text = 'Signed out';  // reloads through sign-in once the window is in focus (signin.js)
-    cls = 'bad';
-  } else if (!d || d.error) {
-    text = 'Waiting for calendar data';
-    cls = 'warn';
-  } else if (d.auth === 'reauth_required') {
-    text = 'Calendar sign-in needed';
-    cls = 'bad';
-  } else {
-    const times = d.calendars.map((c) => c.lastSuccessAt).filter(Boolean).map((t) => new Date(t));
-    const oldest = times.length ? new Date(Math.min(...times)) : null;
-    const mins = oldest ? (now() - oldest) / 60000 : Infinity;
-    if (state.waking) {
-      // Back from sleep: last night's data is old until the first refresh has had its chance.
-    } else if (mins > OFFLINE_MIN) {
-      text = oldest ? `Offline since ${fmtTime(oldest, state.settings.clock)}` : 'Offline';
-      cls = 'bad';
-    } else if (mins > STALE_MIN || !state.lastFetchOk) {
-      text = `Updated ${Math.round(mins)} min ago`;
-      cls = 'warn';
-    }
-  }
+  let { text, cls } = statusLine({
+    signedOut: state.signedOut, data: state.data, waking: state.waking,
+    lastFetchOk: state.lastFetchOk, lastFetchOkAt: state.lastFetchOkAt,
+    nowMs: now().getTime(), fmt: (d) => fmtTime(d, state.settings.clock),
+  });
   if (state.settings.mock) text = text ? `Mock data · ${text}` : 'Mock data';
   s.textContent = text;
   s.className = cls;
